@@ -1,0 +1,45 @@
+{
+  "name": "dsh-coordinator",
+  "version": "0.1.0",
+  "description": "Coordinator service for DSH nodes: accepts outbound node WebSocket connections and forwards structured Remote calls to them.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "bin": {
+    "dsh-coordinate": "lib/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "ui",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "pnpm run declarations && tsdown",
+    "declarations": "tsc -p tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.5.13",
+    "dsh-node": "link:../dsh-node",
+    "tsdown": "^0.15.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT",
+  "private": true
+}

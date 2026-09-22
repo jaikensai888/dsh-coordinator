@@ -1,0 +1,15 @@
+node_modules/
+lib/
+*.log
+.tmp/
+test/.tmp/
+.pnpm-store/
+
+# Never commit a node registry: it holds bearer credentials for other machines.
+nodes.json
+*nodes*.json
+
+# The state file holds node tokens *and* the enrollment secret. Committing it would
+# hand over every machine this Coordinator can reach, plus the right to enroll more.
+coordinator-state.json
+coordinator-state.json.tmp

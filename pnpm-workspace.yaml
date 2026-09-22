@@ -1,0 +1,10 @@
+# pnpm 11 blocks dependency build scripts unless allowed here. esbuild's postinstall
+# spawns a child process with piped stdio, which the DSH file sandbox rejects with
+# `spawn EPERM`, aborting the whole install before pnpm links node_modules/.bin.
+# @esbuild/win32-x64 installs normally, so vite/vitest's JS API works without it.
+allowBuilds:
+  esbuild: false
+
+# Disabled on purpose: the guard makes CI depend on wall-clock time rather than on
+# the committed, reviewed lockfile.
+minimumReleaseAge: 0
