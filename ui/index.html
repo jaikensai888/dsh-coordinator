@@ -239,18 +239,288 @@
   }
   #enrollbar .controls { display: flex; gap: 8px; align-items: center; }
   #enrollbar .controls input { max-width: 300px; font-family: var(--mono); }
+
+  /* ------------------------------------------------------- command deck skin */
+  :root {
+    --bg: #07111f;
+    --surface: #0b1726;
+    --surface-2: #102033;
+    --surface-3: #172b43;
+    --line: #203650;
+    --line-soft: #172941;
+    --text: #e8f0fb;
+    --dim: #8ca1bb;
+    --faint: #61758f;
+    --accent: #3185ff;
+    --accent-dim: rgba(49, 133, 255, .16);
+    --ok: #35d47a;
+    --warn: #f4b63e;
+    --bad: #f27772;
+    --radius: 8px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  header {
+    height: 62px;
+    padding: 0 20px;
+    gap: 12px;
+    background: #081423;
+    border-bottom-color: #1b3049;
+  }
+  .brand-lockup { display: flex; align-items: baseline; gap: 9px; flex: none; }
+  header h1 { font-size: 18px; letter-spacing: -.25px; }
+  header h1::before {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: #2f83ff;
+    box-shadow: 0 0 0 4px rgba(49, 133, 255, .12);
+  }
+  header .version { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+  header > .pill { margin-left: 2px; }
+  header button { padding: 8px 12px; background: #0e1c2e; border-color: #223a56; }
+  header button:hover:not(:disabled) { background: #142943; border-color: #356395; }
+
+  .command-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(380px, 28vw);
+    min-width: 210px;
+    height: 38px;
+    margin-left: 18px;
+    padding: 0 11px;
+    border: 1px solid #2b5b94;
+    border-radius: 7px;
+    background: #091a2e;
+    box-shadow: inset 0 0 0 1px rgba(49, 133, 255, .08);
+  }
+  .command-key {
+    flex: none;
+    color: #a8c9f6;
+    font-family: var(--mono);
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  #commandbar {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 12px;
+  }
+  #commandbar:focus { box-shadow: none; }
+
+  #access-strip {
+    display: grid;
+    grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr) minmax(310px, 1.2fr);
+    gap: 8px;
+    padding: 10px 12px;
+    background: #0a1829;
+    border-bottom: 1px solid #1b3049;
+  }
+  .access-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+    min-height: 70px;
+    padding: 12px 14px;
+    text-align: left;
+    background: #0e1d30;
+    border-color: #203a59;
+    border-radius: 8px;
+  }
+  .access-card:hover:not(:disabled) { background: #132943; border-color: #3774b8; }
+  .access-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .access-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; }
+  .access-card-copy { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .access-card .pill { margin-left: auto; }
+  .runtime-summary {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #203a59;
+    border-radius: 8px;
+    background: #0e1d30;
+  }
+  .summary-health, .summary-metric { min-width: 0; padding: 11px 13px; }
+  .summary-health + .summary-metric, .summary-metric + .summary-metric { border-left: 1px solid #203a59; }
+  .summary-health { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-content: center; }
+  .summary-health .dot { grid-row: span 2; align-self: center; }
+  .summary-health strong { color: var(--ok); font-size: 12px; white-space: nowrap; }
+  .summary-health strong.warn { color: var(--warn); }
+  .summary-health strong.bad { color: var(--bad); }
+  .summary-health strong.off { color: var(--dim); }
+  .summary-label { display: block; color: var(--dim); font-size: 10px; letter-spacing: .3px; white-space: nowrap; }
+  .summary-metric strong { display: inline-block; margin-right: 5px; font-size: 17px; line-height: 1.2; }
+  .summary-note { color: var(--ok); font-family: var(--mono); font-size: 10px; white-space: nowrap; }
+
+  main {
+    grid-template-columns: minmax(250px, 27%) minmax(390px, 1fr) minmax(340px, 31%);
+    gap: 8px;
+    padding: 8px;
+    background: var(--bg);
+  }
+  main > section {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  main > section:last-child { background: #08121f; }
+  .pane-head {
+    height: 46px;
+    padding: 0 14px;
+    background: #0d1b2c;
+    border-bottom-color: var(--line);
+    color: var(--text);
+    font-size: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .pane-head > span:first-child { font-weight: 650; }
+  .pane-head button { padding: 6px 10px; }
+  #sessionfilter-wrap { padding: 10px 12px 8px; background: #0b1829; border-bottom-color: var(--line-soft); }
+  #sessionfilter { background: #081522; border-color: #24415f; padding: 7px 10px; }
+
+  .node-context {
+    padding: 12px 14px 11px;
+    background: #0e1f34;
+    border-bottom: 1px solid var(--line);
+  }
+  .context-kicker { color: var(--faint); font-family: var(--mono); font-size: 10px; letter-spacing: .8px; text-transform: uppercase; }
+  .context-title { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 4px; }
+  .context-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+  .context-meta { margin-top: 4px; color: var(--dim); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #nodes, #sessions { padding: 7px; }
+  #nodes .row, #sessions .row {
+    margin: 0 0 7px;
+    padding: 12px;
+    align-items: flex-start;
+    background: #0e1d30;
+    border: 1px solid #1d3551;
+    border-left: 2px solid transparent;
+    border-radius: 8px;
+  }
+  #nodes .row + .row, #sessions .row + .row { border-top: 1px solid #1d3551; }
+  #nodes .row:hover, #sessions .row:hover { background: #132943; border-color: #315b89; }
+  #nodes .row.active, #sessions .row.active {
+    background: #102c4e;
+    border-color: #2f86ff;
+    border-left-color: #2f86ff;
+    box-shadow: 0 0 0 1px rgba(49, 133, 255, .1);
+  }
+  #nodes .row > .dot, #sessions .row > .dot { margin-top: 5px; }
+  .row-copy { flex: 1; min-width: 0; }
+  .row-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .row-title .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 650; }
+  #nodes .sub, #sessions .sub { margin-top: 4px; color: var(--dim); font-size: 10.5px; }
+  .state-label { flex: none; color: var(--faint); font-family: var(--mono); font-size: 10px; }
+  .state-label.ready { color: var(--ok); }
+  .state-label.offline { color: var(--faint); }
+  .state-label.revoked { color: var(--bad); }
+  #nodes .empty, #sessions .empty { padding: 28px 14px; }
+
+  #log { padding: 16px 17px; background: #08121f; }
+  .frame .body { background: #102033; border-color: #213a58; }
+  .frame.user .body { background: #0e3766; border-color: #2b67a5; }
+  .frame.assistant .body { background: #111f31; border-color: #27405e; }
+  .frame .meta { color: var(--faint); }
+  #composer { padding: 12px; background: #0b1829; border-top-color: var(--line); }
+  #composer textarea { background: #081522; border-color: #24415f; }
+
+  #tokenbar, #operatorbar, #enrollbar {
+    padding: 12px 16px;
+    background: #0d1e32;
+    border-bottom-color: #264463;
+  }
+  #tokenbar .sheet, #operatorbar .sheet, #enrollbar .sheet { max-width: none; }
+  #operatorbar { background: #0d2340; border-bottom-color: #2a5b8f; }
+  #enrollbar { background: #132238; }
+  #operatorbar .hint, #enrollbar .hint { color: var(--dim); }
+
+  @media (max-width: 1100px) {
+    .command-field { width: 220px; min-width: 160px; margin-left: 8px; }
+    #access-strip { grid-template-columns: 1fr 1fr; }
+    .runtime-summary { grid-column: 1 / -1; }
+    main { grid-template-columns: 220px minmax(300px, 1fr) 300px; }
+  }
+  @media (max-width: 840px) {
+    header { padding: 0 12px; }
+    .command-field { display: none; }
+    header button { padding: 7px 8px; }
+    #access-strip { grid-template-columns: 1fr 1fr; padding: 7px; }
+    .access-card { min-height: 64px; padding: 9px 10px; }
+    main { grid-template-columns: 205px 260px minmax(300px, 1fr); gap: 5px; padding: 5px; }
+  }
+  @media (max-width: 700px) {
+    #access-strip { grid-template-columns: 1fr; }
+    .runtime-summary { grid-column: auto; }
+    main { grid-template-columns: minmax(260px, 1fr); overflow-y: auto; }
+    main > section { min-height: 360px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>DSH Coordinator</h1>
+  <div class="brand-lockup">
+    <h1>DSH Coordinator</h1>
+    <span class="version">v0.1.0</span>
+  </div>
   <span class="pill" id="stat">连接中…</span>
+  <div class="command-field">
+    <span class="command-key">Ctrl+K</span>
+    <input id="commandbar" aria-label="快速命令" placeholder="快速命令…" autocomplete="off">
+  </div>
   <span class="spacer"></span>
   <button id="operatortoggle">运营端 token</button>
-  <button id="enrolltoggle">令牌</button>
+  <button id="enrolltoggle">节点接入 token</button>
   <button id="refresh">刷新节点</button>
 </header>
+
+<section id="access-strip" aria-label="访问凭证与运行状态">
+  <button class="access-card" id="operator-card" type="button">
+    <span class="access-card-head">
+      <span class="access-card-title">运营端 token</span>
+      <span class="pill off" id="operator-card-state">未设置</span>
+    </span>
+    <span class="access-card-copy">用于调用 Coordinator API（本地控制台）</span>
+  </button>
+  <button class="access-card" id="enroll-card" type="button">
+    <span class="access-card-head">
+      <span class="access-card-title">节点接入 token</span>
+      <span class="pill off" id="enroll-card-state">未设置</span>
+    </span>
+    <span class="access-card-copy">节点使用它连接并登记到 Coordinator</span>
+  </button>
+  <div class="runtime-summary" aria-label="运行状态">
+    <div class="summary-health">
+      <span class="dot offline" id="summary-health-dot"></span>
+      <span class="summary-label">Coordinator</span>
+      <strong id="summary-state">连接中</strong>
+    </div>
+    <div class="summary-metric">
+      <span class="summary-label">节点</span>
+      <strong id="summary-nodes">0</strong>
+      <span class="summary-note" id="summary-ready">0 就绪</span>
+    </div>
+    <div class="summary-metric">
+      <span class="summary-label">活跃会话</span>
+      <strong id="summary-sessions">0</strong>
+    </div>
+  </div>
+</section>
 
 <div id="tokenbar">
   <div class="sheet">
@@ -295,13 +565,13 @@
 <div id="enrollbar">
   <div class="sheet">
     <div class="sheet-head">
-      <strong>令牌</strong>
+      <strong>节点接入 token</strong>
       <span class="pill" id="enrollstate">—</span>
       <span class="spacer"></span>
       <button id="enrollhide" class="ghost">收起</button>
     </div>
     <div class="hint">
-      节点连接时填上这个令牌，就能连入本网关；连入后即可被这里控制。
+      节点连接时填上这个 token，就能连入 Coordinator；连入后即可被这里控制。它与运营端 token 分开。
     </div>
     <div class="controls">
       <input id="enrollinput" type="password" placeholder="新令牌（留空 = 不修改）" autocomplete="off">
@@ -317,6 +587,14 @@
     <div class="list" id="nodes"><div class="empty">加载中…</div></div>
   </section>
   <section>
+    <div class="node-context" id="nodecontext">
+      <div class="context-kicker">当前节点</div>
+      <div class="context-title">
+        <strong id="selectednodename">未选择节点</strong>
+        <span class="pill off" id="selectednodestate">—</span>
+      </div>
+      <div class="context-meta" id="selectednodemeta">从左侧选择节点查看会话</div>
+    </div>
     <div class="pane-head">
       <span>会话</span><span class="spacer"></span>
       <span id="sessioncount"></span>
@@ -364,6 +642,65 @@ const el = (tag, className, text) => {
   if (className) node.className = className
   if (text !== undefined) node.textContent = text
   return node
+}
+
+function setPill (id, text, tone) {
+  const target = $(id)
+  if (!target) return
+  target.textContent = text
+  target.className = 'pill ' + (tone || 'off')
+}
+
+function nodeStatusLabel (node) {
+  if (!node) return '—'
+  if (node.revoked) return '已撤销'
+  if (node.state === 'ready') return '在线'
+  if (node.state === 'offline') return '离线'
+  return node.state || '未知'
+}
+
+function renderSummary (serviceOverride) {
+  const total = state.nodes.length
+  const ready = state.nodes.filter(node => node.state === 'ready' && !node.revoked).length
+  const activeSessions = state.sessions.filter(session => session && session.running).length
+  const stateText = serviceOverride || (total === 0 ? '等待节点' : ready > 0 ? '正常运行' : '无可用节点')
+  const tone = serviceOverride ? 'bad' : ready > 0 ? 'ok' : total > 0 ? 'warn' : 'off'
+
+  if ($('summary-state')) {
+    $('summary-state').textContent = stateText
+    $('summary-state').className = 'summary-state ' + tone
+  }
+  if ($('summary-health-dot')) {
+    $('summary-health-dot').className = 'dot ' + (tone === 'ok' ? 'ready' : tone === 'bad' ? 'revoked' : 'offline')
+  }
+  if ($('summary-nodes')) $('summary-nodes').textContent = String(total)
+  if ($('summary-ready')) $('summary-ready').textContent = ready + ' 就绪'
+  if ($('summary-sessions')) $('summary-sessions').textContent = String(activeSessions)
+}
+
+function renderNodeContext () {
+  const node = state.nodes.find(entry => entry.nodeId === state.nodeId)
+  if (!node) {
+    $('selectednodename').textContent = '未选择节点'
+    setPill('selectednodestate', '—', 'off')
+    $('selectednodemeta').textContent = '从左侧选择节点查看会话'
+    return
+  }
+
+  $('selectednodename').textContent = node.nodeName || node.nodeId
+  setPill('selectednodestate', nodeStatusLabel(node), node.revoked ? 'off' : node.state === 'ready' ? 'ok' : 'off')
+  $('selectednodemeta').textContent = `${node.nodeId} · ${node.state} · ${node.capabilityCount || 0} 能力`
+}
+
+function canOperateNode () {
+  const node = state.nodes.find(entry => entry.nodeId === state.nodeId)
+  return Boolean(node && node.state === 'ready' && !node.revoked)
+}
+
+function syncNodeActions () {
+  const enabled = canOperateNode()
+  $('new').disabled = !enabled
+  $('newinsession').disabled = !enabled
 }
 
 /** Read the remembered operator token, tolerating storage being unavailable. */
@@ -642,18 +979,25 @@ function renderNodes () {
   const list = $('nodes')
   list.replaceChildren()
   $('nodecount').textContent = state.nodes.length ? String(state.nodes.length) : ''
+  renderNodeContext()
+  renderSummary()
+  syncNodeActions()
 
   if (state.nodes.length === 0) {
     list.append(el('div', 'empty', '还没有节点连上来'))
     return
   }
   for (const node of state.nodes) {
-    const row = el('div', 'row' + (node.nodeId === state.nodeId ? ' active' : ''))
+    const statusClass = node.revoked ? 'revoked' : node.state
+    const row = el('div', 'row node-row' + (node.nodeId === state.nodeId ? ' active' : ''))
     const dot = el('span', 'dot ' + (node.revoked ? 'revoked' : node.state))
     row.append(dot)
-    const box = el('div', 'name')
-    box.append(el('div', 'name', node.nodeName || node.nodeId))
-    box.append(el('div', 'sub', node.state + ' · ' + (node.capabilityCount || 0) + ' 能力'))
+    const box = el('div', 'row-copy')
+    const title = el('div', 'row-title')
+    title.append(el('span', 'name', node.nodeName || node.nodeId))
+    title.append(el('span', 'state-label ' + statusClass, nodeStatusLabel(node)))
+    box.append(title)
+    box.append(el('div', 'sub', node.nodeId + ' · ' + (node.capabilityCount || 0) + ' 能力'))
     row.append(box)
     row.title = node.nodeId
     row.onclick = () => selectNode(node.nodeId)
@@ -664,12 +1008,15 @@ function renderNodes () {
 async function refreshNodes () {
   try {
     state.nodes = await api('/api/nodes')
-    $('stat').textContent = '已连接 · ' + state.nodes.filter(n => n.state === 'ready').length + ' 个就绪'
+    const ready = state.nodes.filter(node => node.state === 'ready' && !node.revoked).length
+    $('stat').textContent = state.nodes.length ? `就绪 ${ready} / ${state.nodes.length}` : '等待节点'
     renderNodes()
+    renderSummary()
     // A node can drop out from under a selection; keep the panes honest about it.
     if (state.nodeId && !state.nodes.some(n => n.nodeId === state.nodeId)) selectNode(null)
   } catch (error) {
     $('stat').textContent = '未连接'
+    renderSummary('API 未连接')
     const list = $('nodes')
     list.replaceChildren()
     list.append(el('div', 'empty', String(error.message || error)))
@@ -683,14 +1030,15 @@ function selectNode (nodeId) {
   state.sessions = []
   closeFollow()
   renderNodes()
+  renderNodeContext()
+  renderSummary()
   clearLog(nodeId ? '正在加载会话…' : '选一个会话开始')
   $('chat-title').textContent = '消息'
   $('chat-state').textContent = '—'
-  $('new').disabled = !nodeId
+  syncNodeActions()
   $('reload').disabled = true
   $('text').disabled = true
   $('send').disabled = true
-  $('newinsession').disabled = !nodeId
   if (nodeId) void loadSessions()
   else renderSessions()
 }
@@ -843,6 +1191,7 @@ function sessionLabels (sessions) {
 function renderSessions () {
   const list = $('sessions')
   list.replaceChildren()
+  renderSummary()
   if (!state.nodeId) {
     list.append(el('div', 'empty', '先选一个节点'))
     return
@@ -876,14 +1225,16 @@ function renderSessions () {
   for (const session of state.sessions) {
     if (!shown.includes(session)) continue
     const id = sessionOf(session)
-    const row = el('div', 'row' + (id === state.sessionId ? ' active' : ''))
+    const row = el('div', 'row session-row' + (id === state.sessionId ? ' active' : ''))
     row.append(el('span', 'dot ' + (session.running ? 'ready' : 'offline')))
 
-    const box = el('div', 'name')
-    box.append(el('div', 'name', labelFor(session)))
+    const box = el('div', 'row-copy')
+    const title = el('div', 'row-title')
+    title.append(el('span', 'name', labelFor(session)))
+    title.append(el('span', 'state-label ' + (session.running ? 'ready' : 'offline'), session.running ? '运行中' : '已停止'))
+    box.append(title)
 
     const bits = []
-    if (session.running) bits.push('运行中')
     const folder = folderName(session.cwd)
     if (folder !== '') bits.push(folder)
     const when = relativeTime(session.updatedAt)
@@ -927,8 +1278,7 @@ async function createSession () {
   } catch (error) {
     note('创建会话失败：' + (error.message || error), 'err')
   } finally {
-    $('new').disabled = !state.nodeId
-    $('newinsession').disabled = !state.nodeId
+    syncNodeActions()
   }
 }
 
@@ -1048,7 +1398,7 @@ function selectSession (sessionId) {
   const title = sessionTitle(session)
   const label = sessionLabel(session ?? { sessionId })
   const heading = $('chat-title')
-  heading.textContent = label
+  heading.textContent = '消息 · ' + label
   heading.title = `${title || '(未命名)'}\n${sessionId}`
 
   $('reload').disabled = false
@@ -1093,12 +1443,15 @@ async function loadEnrollment () {
     const value = await api('/api/enrollment')
     // "Set / not set", which is the operator's question. Where it is stored is a
     // tooltip, not a status: it only matters when it would be lost.
-    pill.textContent = value.open ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
+    const label = value.open ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
+    pill.textContent = label
     pill.className = 'pill ' + (value.open ? 'ok' : 'off')
+    setPill('enroll-card-state', label, value.open ? 'ok' : 'off')
     pill.title = value.stateFile ? '保存在 ' + value.stateFile : '没有配置状态文件，重启会丢失'
   } catch (error) {
     pill.textContent = '未知'
     pill.className = 'pill off'
+    setPill('enroll-card-state', '未知', 'off')
     pill.title = String(error.message || error)
   }
 }
@@ -1130,8 +1483,10 @@ async function loadOperatorToken () {
   try {
     const value = await api('/api/operator-token')
     const configured = value.configured === true
-    pill.textContent = configured ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
+    const label = configured ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
+    pill.textContent = label
     pill.className = 'pill ' + (configured ? 'ok' : 'off')
+    setPill('operator-card-state', label, configured ? 'ok' : 'off')
     $('operatorhint').textContent = configured
       ? '更换 token 后，当前页面会立即改用新值；页面不会回显 token。'
       : '首次使用请设置一个 token；设置后，调用 Coordinator API 必须携带它。'
@@ -1139,6 +1494,7 @@ async function loadOperatorToken () {
   } catch (error) {
     pill.textContent = '未知'
     pill.className = 'pill off'
+    setPill('operator-card-state', '未知', 'off')
     pill.title = String(error.message || error)
   }
 }
@@ -1169,6 +1525,8 @@ async function setOperatorToken () {
 
 // ------------------------------------------------------------------ wiring
 
+$('operator-card').onclick = () => { $('operatortoggle').click() }
+$('enroll-card').onclick = () => { $('enrolltoggle').click() }
 $('refresh').onclick = () => { void refreshNodes() }
 $('new').onclick = () => { void createSession() }
 $('newinsession').onclick = () => { void createSession() }
@@ -1258,6 +1616,37 @@ $('operatorinput').addEventListener('keydown', event => {
   if (event.key === 'Enter') {
     event.preventDefault()
     $('operatorsave').click()
+  }
+})
+
+function runQuickCommand (value) {
+  const command = value.trim().toLowerCase()
+  if (command === '') return
+  if (command.includes('刷新') || command.includes('refresh')) {
+    void refreshNodes()
+  } else if (command.includes('运营') || command.includes('operator')) {
+    $('operatortoggle').click()
+    $('operatorinput').focus()
+  } else if (command.includes('接入') || command.includes('登记') || command.includes('enroll') || command.includes('node token')) {
+    $('enrolltoggle').click()
+    $('enrollinput').focus()
+  } else if (command.includes('会话') || command.includes('session')) {
+    $('sessionfilter').focus()
+  } else {
+    note('可用命令：刷新节点、运营端 token、节点接入 token、筛选会话', 'sys')
+  }
+}
+
+$('commandbar').addEventListener('keydown', event => {
+  if (event.key !== 'Enter') return
+  event.preventDefault()
+  runQuickCommand(event.target.value)
+  event.target.value = ''
+})
+document.addEventListener('keydown', event => {
+  if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    $('commandbar').focus()
   }
 })
 
