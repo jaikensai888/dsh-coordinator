@@ -358,7 +358,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     const servesUi = options.enableApi && coordinator.sessionsEnabled
     // The two privileges are decided separately now, so the banner has to report
     // them separately: where nodes may dial from, and where administration works.
-    const remoteAdmin = options.apiToken !== undefined && options.apiToken !== ''
+    // The token may have been restored from the state file or configured through
+    // the localhost UI, so the coordinator is the source of truth here.
+    const remoteAdmin = coordinator.operatorTokenConfigured
 
     if (isWildcardHost(address.host)) {
       // `0.0.0.0` listens on every interface, but no other machine can *dial* it.

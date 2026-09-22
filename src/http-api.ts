@@ -94,6 +94,10 @@ export interface HttpApiHost {
 export interface HttpApiOptions {
   /** Bearer token required for every request when set. */
   readonly token?: string
+  /** Read the bearer token at request time, for a token configured after startup. */
+  readonly getToken?: () => string | undefined
+  /** Set the bearer token from the localhost bootstrap route. */
+  readonly setToken?: (token: string) => void
   /** Whether the API is installed at all. Defaults to true. */
   readonly enabled?: boolean
   /** Serve the bundled UI page at `/ui`. Defaults to true. */
@@ -154,7 +158,8 @@ export function allowsRemoteApi(options: { readonly token?: string | undefined }
  */
 export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): HttpApi {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
-  const token = options.token === '' ? undefined : options.token
+  const initialToken = options.token === '' ? undefined : options.token
+  const getToken = options.getToken ?? (() => initialToken)
   const enabled = options.enabled ?? true
   const ui = (options.ui ?? true) && enabled
 
@@ -197,7 +202,9 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
       routing means a remote caller learns nothing about which routes exist; a 404
       per route would leak the surface a little at a time.
     */
-    if (!allowsRemoteApi({ token }) && !isLoopbackAddress(request.socket?.remoteAddress)) {
+    const token = normaliseToken(getToken())
+    const loopback = isLoopbackAddress(request.socket?.remoteAddress)
+    if (!allowsRemoteApi({ token }) && !loopback) {
       sendJson(response, 403, {
         ok: false,
         error: {
@@ -216,6 +223,18 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
     // operator for the token as soon as one of those calls comes back 401. On a
     // loopback request there is no token to ask for, so it never has to.
     if (ui && method === 'GET' && isUiPath(path)) {
+      if (!loopback) {
+        sendJson(response, 403, {
+          ok: false,
+          error: {
+            code: 'coordinator/auth-rejected',
+            message: 'the Coordinator test UI is available only on localhost',
+            details: {},
+          },
+        })
+        finish(403)
+        return
+      }
       try {
         const html = await readUiHtml()
         sendHtml(response, html)
@@ -235,18 +254,11 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
       finish(401)
       return
     }
-    if (token !== undefined && !authorized(request, token)) {
-      response.setHeader('www-authenticate', 'Bearer')
-      sendJson(response, 401, {
-        ok: false,
-        error: { code: 'coordinator/auth-rejected', message: 'a bearer token is required', details: {} },
-      })
-      finish(401)
-      return
-    }
-
     try {
-      const status = await route(host, request, response, method, path, url, maxBodyBytes)
+      const status = await route(host, request, response, method, path, url, maxBodyBytes, {
+        getToken,
+        ...(options.setToken === undefined ? {} : { setToken: options.setToken }),
+      })
       finish(status)
     } catch (error) {
       const failure = failureOf(error)
@@ -260,7 +272,12 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
     }
   }
 
-  return { handle, requiresToken: token !== undefined }
+  return {
+    handle,
+    get requiresToken() {
+      return normaliseToken(getToken()) !== undefined
+    },
+  }
 }
 
 /** Route one request. Returns the HTTP status that was sent. */
@@ -272,6 +289,7 @@ async function route(
   path: string,
   url: URL,
   maxBodyBytes: number,
+  operatorToken: { readonly getToken: () => string | undefined; readonly setToken?: (token: string) => void },
 ): Promise<number> {
   if (method === 'GET' && path === '/api/stats') {
     sendJson(response, 200, { ok: true, value: host.stats() })
@@ -301,6 +319,59 @@ async function route(
   }
   if (method === 'GET' && path === '/api/health') {
     sendJson(response, 200, { ok: true, value: { listening: host.address !== undefined } })
+    return 200
+  }
+
+  // ------------------------------------------------------- operator credential
+
+  if (path === '/api/operator-token') {
+    // The Coordinator UI is intentionally a localhost-only bootstrap surface.
+    // A bearer token may make the rest of the API remotely usable, but it does
+    // not turn this setup endpoint into a remote credential-management API.
+    if (!isLoopbackAddress(request.socket?.remoteAddress)) {
+      sendJson(response, 403, {
+        ok: false,
+        error: {
+          code: 'coordinator/auth-rejected',
+          message: 'the operator token can only be configured from localhost',
+          details: {},
+        },
+      })
+      return 403
+    }
+    if (method === 'GET') {
+      sendJson(response, 200, {
+        ok: true,
+        value: {
+          configured: normaliseToken(operatorToken.getToken()) !== undefined,
+          persisted: host.stateFile !== undefined,
+        },
+      })
+      return 200
+    }
+    if (method !== 'POST') {
+      sendJson(response, 405, {
+        ok: false,
+        error: { code: 'coordinator/invalid-arguments', message: `${path} accepts GET or POST`, details: { path } },
+      })
+      return 405
+    }
+    if (operatorToken.setToken === undefined) {
+      sendJson(response, 404, { ok: false, error: notFound(path) })
+      return 404
+    }
+    const body = await readJsonBody(request, maxBodyBytes)
+    const token = requireString(body, 'token').trim()
+    if (token === '') {
+      throw new CoordinatorError('coordinator/invalid-arguments', '"token" must be a non-empty string', {
+        field: 'token',
+      })
+    }
+    operatorToken.setToken(token)
+    sendJson(response, 200, {
+      ok: true,
+      value: { configured: true, persisted: host.stateFile !== undefined },
+    })
     return 200
   }
 
@@ -566,6 +637,12 @@ export async function readJsonBody(request: IncomingMessage, maxBodyBytes: numbe
     throw new CoordinatorError('coordinator/invalid-arguments', 'the request body must be a JSON object', {})
   }
   return parsed
+}
+
+function normaliseToken(token: string | undefined): string | undefined {
+  if (token === undefined) return undefined
+  const trimmed = token.trim()
+  return trimmed === '' ? undefined : trimmed
 }
 
 function authorized(request: IncomingMessage, token: string): boolean {

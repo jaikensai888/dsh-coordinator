@@ -211,6 +211,8 @@ export interface CoordinatorStats {
  */
 export class Coordinator {
   readonly #options: ResolvedOptions
+  /** Runtime operator credential; unlike the CLI option, this can be set from the UI. */
+  #apiToken: string | undefined
   readonly #registry: NodeRegistry
   readonly #logger: CoordinatorLogger
   readonly #timers: TimerSource
@@ -236,6 +238,7 @@ export class Coordinator {
   /** @param options - listener, registry, and limits. */
   constructor(options: CoordinatorOptions = {}) {
     this.#options = resolveOptions(options)
+    this.#apiToken = this.#options.apiToken
     this.#timers = options.timers ?? systemTimers
     this.#registry = options.registry ?? new NodeRegistry({
       ...(options.records === undefined ? {} : { records: options.records }),
@@ -250,6 +253,7 @@ export class Coordinator {
       return [
         ...this.#registry.records().map(record => record.token),
         ...(policy.kind === 'shared-secret' ? [policy.token] : []),
+        ...(this.#apiToken === undefined ? [] : [this.#apiToken]),
       ]
     }
     this.#logger = options.logger ?? createLogger({ level: 'info', secrets })
@@ -279,6 +283,28 @@ export class Coordinator {
   /** Where the state file is, or undefined when persistence is off. */
   get stateFile(): string | undefined {
     return this.#options.stateFile
+  }
+
+  /** Whether the operator API currently has a bearer token configured. */
+  get operatorTokenConfigured(): boolean {
+    return this.#apiToken !== undefined
+  }
+
+  /**
+   * Set the operator API bearer token.
+   *
+   * The value is kept in memory immediately and persisted through the same
+   * serialised state queue as node records and the enrollment rule. It is never
+   * returned to the caller or written to a log field.
+   */
+  setOperatorToken(token: string): void {
+    const trimmed = token.trim()
+    if (trimmed === '') {
+      throw new CoordinatorError('coordinator/invalid-arguments', 'an operator token must be a non-empty string', {})
+    }
+    this.#apiToken = trimmed
+    this.#persist()
+    this.#logger.info('coordinator/operator-token-set', { length: trimmed.length, persisted: this.#options.stateFile !== undefined })
   }
 
   /**
@@ -339,6 +365,7 @@ export class Coordinator {
       this.#persistQueued = false
       try {
         await writeStateFile(file, {
+          ...(this.#apiToken === undefined ? {} : { apiToken: this.#apiToken }),
           nodes: this.#registry.records(),
           enrollment: this.#registry.enrollmentPolicy,
         })
@@ -370,8 +397,16 @@ export class Coordinator {
     }
     if (read.state === undefined) {
       this.#logger.info('coordinator/state-absent', { file, hint: 'a new state file will be written on the first change' })
+      if (this.#apiToken !== undefined) {
+        this.#persist()
+        await this.flushState()
+      }
       return
     }
+
+    const storedApiToken = read.state.apiToken
+    const tokenWasOverridden = this.#apiToken !== undefined && storedApiToken !== this.#apiToken
+    if (this.#apiToken === undefined && storedApiToken !== undefined) this.#apiToken = storedApiToken
 
     for (const record of read.state.nodes) {
       // The CLI is the bootstrap: a record given at launch is the operator saying
@@ -385,7 +420,7 @@ export class Coordinator {
       this.#registry.setEnrollment(read.state.enrollment)
     }
     this.#logger.info('coordinator/state-loaded', { file, ...describeState(read.state) })
-    if (this.#options.enrollmentFromCli === true && read.state.enrollment !== undefined) {
+    if ((this.#options.enrollmentFromCli === true && read.state.enrollment !== undefined) || tokenWasOverridden) {
       this.#persist()
       await this.flushState()
     }
@@ -444,14 +479,15 @@ export class Coordinator {
         // The page only knows how to talk about sessions, so a service told not to
         // know about them should not serve it.
         ui: this.#options.enableUi && this.#options.sessions.enabled,
-        ...(this.#options.apiToken === undefined ? {} : { token: this.#options.apiToken }),
+        getToken: () => this.#apiToken,
+        setToken: token => { this.setOperatorToken(token) },
         ...(this.#options.maxBodyBytes === undefined ? {} : { maxBodyBytes: this.#options.maxBodyBytes }),
         onRequest: info => { this.#logger.debug('coordinator/api-request', info) },
       })
       if (!apiEnabled) {
         this.#logger.warn('coordinator/api-disabled', { reason: 'disabled by configuration' })
       } else if (
-        !allowsRemoteApi({ ...(this.#options.apiToken === undefined ? {} : { token: this.#options.apiToken }) }) &&
+        !allowsRemoteApi({ ...(this.#apiToken === undefined ? {} : { token: this.#apiToken }) }) &&
         !isLoopback(this.#options.host)
       ) {
         // Said once, at startup, because the symptom of getting this wrong is a

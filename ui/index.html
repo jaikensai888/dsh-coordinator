@@ -197,11 +197,11 @@
   #composer .side button { padding: 7px 16px; }
 
   /* --------------------------------------------------------- notices */
-  #tokenbar, #enrollbar {
+  #tokenbar, #operatorbar, #enrollbar {
     display: none; gap: 10px; align-items: center;
     padding: 11px 14px; font-size: 12.5px; flex: none;
   }
-  #tokenbar.on, #enrollbar.on { display: flex; }
+  #tokenbar.on, #operatorbar.on, #enrollbar.on { display: flex; }
   #tokenbar { background: #241d10; border-bottom: 1px solid #4a3a17; color: #e8d6ac; }
   /* A refused token is a different problem from a missing one; the colour says so. */
   #tokenbar.rejected { background: #2c1618; border-bottom-color: #5c2b25; color: #f3c9c4; }
@@ -213,6 +213,14 @@
   #tokenbar.rejected .hint { color: #d8a9a3; }
   #tokenbar .controls, #enrollbar .controls { display: flex; gap: 8px; align-items: center; }
   #tokenbar .controls input { max-width: 300px; font-family: var(--mono); }
+  #operatorbar { background: #102236; border-bottom: 1px solid #1f4770; color: #cfe2ff; }
+  #operatorbar .sheet { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 760px; }
+  #operatorbar .sheet-head { display: flex; align-items: center; gap: 10px; }
+  #operatorbar .sheet-head strong { font-size: 13px; font-weight: 600; }
+  #operatorbar .sheet-head .spacer { flex: 1; }
+  #operatorbar .hint { color: var(--dim); font-size: 12px; line-height: 1.65; }
+  #operatorbar .controls { display: flex; gap: 8px; align-items: center; }
+  #operatorbar .controls input { max-width: 300px; font-family: var(--mono); }
   #enrollbar { background: var(--surface-2); border-bottom: 1px solid var(--line); }
 
   /*
@@ -239,6 +247,7 @@
   <h1>DSH Coordinator</h1>
   <span class="pill" id="stat">连接中…</span>
   <span class="spacer"></span>
+  <button id="operatortoggle">运营端 token</button>
   <button id="enrolltoggle">令牌</button>
   <button id="refresh">刷新节点</button>
 </header>
@@ -251,6 +260,22 @@
       <input id="token" type="password" placeholder="--api-token 的值" autocomplete="off">
       <button id="settoken" class="primary">保存并使用</button>
       <button id="cleartoken" class="ghost">清除</button>
+    </div>
+  </div>
+</div>
+
+<div id="operatorbar">
+  <div class="sheet">
+    <div class="sheet-head">
+      <strong>运营端 token</strong>
+      <span class="pill" id="operatorstate">—</span>
+      <span class="spacer"></span>
+      <button id="operatorhide" class="ghost">收起</button>
+    </div>
+    <div class="hint" id="operatorhint">设置后，调用 Coordinator API 必须携带这个 token；页面不会回显 token。</div>
+    <div class="controls">
+      <input id="operatorinput" type="password" placeholder="设置或更换 token" autocomplete="new-password">
+      <button id="operatorsave" class="primary">保存并使用</button>
     </div>
   </div>
 </div>
@@ -367,11 +392,11 @@ function needToken (rejected) {
   bar.classList.add('on')
   bar.classList.toggle('rejected', rejected === true)
   $('tokentitle').textContent = rejected
-    ? '运维令牌被拒绝 —— 服务器不接受这个值'
-    : '该 API 需要运维令牌'
+    ? '运营端 token 被拒绝 —— 服务器不接受这个值'
+    : '该 API 需要运营端 token'
   $('tokenhint').textContent = rejected
-    ? '注意：这是启动时 --api-token 的值，不是节点用的接入口令。两者通常不相同。'
-    : '启动 Coordinator 时 --api-token 的值。绑非回环地址时它是必填的。'
+    ? '注意：这是 Coordinator 的运营端 token，不是节点连接 Coordinator 使用的 node-token。'
+    : '请输入 Coordinator 的运营端 token；它与节点使用的 node-token 不同。'
   $('token').focus()
 }
 
@@ -1097,6 +1122,51 @@ async function setEnrollment (secret) {
   }
 }
 
+// --------------------------------------------------------- operator token
+
+/** Read whether the operator token exists, without ever reading its value. */
+async function loadOperatorToken () {
+  const pill = $('operatorstate')
+  try {
+    const value = await api('/api/operator-token')
+    const configured = value.configured === true
+    pill.textContent = configured ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
+    pill.className = 'pill ' + (configured ? 'ok' : 'off')
+    $('operatorhint').textContent = configured
+      ? '更换 token 后，当前页面会立即改用新值；页面不会回显 token。'
+      : '首次使用请设置一个 token；设置后，调用 Coordinator API 必须携带它。'
+    if (!configured) $('operatorbar').classList.add('on')
+  } catch (error) {
+    pill.textContent = '未知'
+    pill.className = 'pill off'
+    pill.title = String(error.message || error)
+  }
+}
+
+async function setOperatorToken () {
+  const value = $('operatorinput').value.trim()
+  if (value === '') {
+    note('运营端 token 不能为空。', 'sys')
+    return
+  }
+  $('operatorsave').disabled = true
+  try {
+    const result = await api('/api/operator-token', { token: value })
+    state.token = value
+    rememberToken(value)
+    $('operatorinput').value = ''
+    $('operatorbar').classList.remove('on')
+    note('运营端 token 已保存' + (result.persisted ? '，重启后仍然有效' : '（仅内存，重启会丢失）'))
+    await loadOperatorToken()
+    await refreshNodes()
+    await loadEnrollment()
+  } catch (error) {
+    note('保存运营端 token 失败：' + (error.message || error), 'err')
+  } finally {
+    $('operatorsave').disabled = false
+  }
+}
+
 // ------------------------------------------------------------------ wiring
 
 $('refresh').onclick = () => { void refreshNodes() }
@@ -1104,6 +1174,16 @@ $('new').onclick = () => { void createSession() }
 $('newinsession').onclick = () => { void createSession() }
 $('reload').onclick = () => { if (state.sessionId) void openFollow(state.sessionId) }
 $('send').onclick = () => { void send() }
+$('operatortoggle').onclick = () => {
+  const bar = $('operatorbar')
+  bar.classList.toggle('on')
+  if (bar.classList.contains('on')) {
+    void loadOperatorToken()
+    $('operatorinput').focus()
+  }
+}
+$('operatorhide').onclick = () => { $('operatorbar').classList.remove('on') }
+$('operatorsave').onclick = () => { void setOperatorToken() }
 $('enrolltoggle').onclick = () => {
   const bar = $('enrollbar')
   bar.classList.toggle('on')
@@ -1174,7 +1254,14 @@ $('token').addEventListener('keydown', event => {
   }
 })
 $('token').value = state.token
+$('operatorinput').addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    $('operatorsave').click()
+  }
+})
 
+void loadOperatorToken()
 void refreshNodes()
 void loadEnrollment()
 setInterval(() => { void refreshNodes() }, 5000)

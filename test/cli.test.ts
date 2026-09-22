@@ -52,6 +52,7 @@ describe('parseArgs defaults', () => {
       traceFrames: false,
       enableApi: true,
       allowInsecureBind: false,
+      noStateFile: false,
     })
   })
 })

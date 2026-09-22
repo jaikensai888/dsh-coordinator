@@ -216,7 +216,8 @@ curl -X POST http://127.0.0.1:39472/api/nodes/rotate -H 'content-type: applicati
 | GET | `/api/nodes` | 全部节点视图（**永不包含 token**） |
 | GET | `/api/node?nodeId=…` | 单个节点视图 |
 | GET | `/api/capabilities?nodeId=…` | 该节点上报的完整能力表（含 `mode`） |
-| GET | `/ui` | 内置单页（见 §5.2）。**不需要 token**，因为它自己会问 |
+| GET/POST | `/api/operator-token` | 查看或设置运营端 token；设置接口只允许 localhost |
+| GET | `/ui` | 内置单页（见 §5.2），只允许 localhost |
 | POST | `/api/invoke` | `{nodeId, endpoint, args?, timeoutMs?}` |
 | POST | `/api/stream` | 同上；响应是 NDJSON：`open` → `data`×n → `end`/`error` |
 | POST | `/api/streams/cancel` | `{nodeId, streamId, reason?}` |
@@ -236,7 +237,10 @@ curl -X POST http://127.0.0.1:39472/api/nodes/rotate -H 'content-type: applicati
 curl.exe -s -X POST http://127.0.0.1:39472/api/invoke -H "content-type: application/json" --data-binary "@body.json"
 ```
 
-配置了 `--api-token` 时每个请求都要 `Authorization: Bearer <token>`。
+运营端 token 可以通过启动参数 `--api-token` 或 `/ui` 顶栏的「运营端 token」设置。
+首次未配置时，localhost 可以 POST `/api/operator-token` 完成 bootstrap；设置后每个
+`/api/*` 请求都要 `Authorization: Bearer <token>`。轮换 token 必须携带旧 token，
+接口永不返回 token 值。
 
 ### 5.1 会话：本服务唯一按名字认识业务 Remote 的地方
 
@@ -317,15 +321,17 @@ CLI 启动时会把这条地址打出来 —— 因为默认只绑回环，而 `
 三件事值得说明：
 
 - **一个文件、零构建、零依赖**，由本服务自己托管。改一个标签不需要重新打包服务。
-- **页面在 token 校验之前返回**，因为浏览器导航带不了 `Authorization` 头。页面本身不含任何
-  凭据；它发出的每一个 `/api/*` 调用仍要过校验，所以拿到 401 时它会就地弹出输入框问你。
+- **页面只允许 localhost 返回**，且页面在 token 校验之前返回，因为浏览器导航带不了
+  `Authorization` 头。页面本身不含任何凭据；它发出的每一个 `/api/*` 调用仍要过校验，
+  所以拿到 401 时它会就地弹出输入框问你。token 设置面板只允许本机浏览器使用。
 - **`session/follow` 用 `fetch` + `ReadableStream` 逐行读**，不是 `EventSource`（那个只能 GET）。
   切换会话或节点时先 abort 旧流再开新流 —— 同时只允许一条 follow 流。
 
 打开它就等于拿到「这台机器上所有已登记节点」的完整操作能力（`promptSession` 会真的发 prompt），
 所以它的暴露面和 `/api` 完全一致，绑定策略也一致。
 
-**顶栏的「登记设置」**可以设置登记密钥（见 §5.3）。面板里那个输入框是**只写的**：
+**顶栏的「运营端 token」**可以首次设置或轮换管理 token；**登记设置**可以设置登记密钥
+（见 §5.3）。两个输入框都是**只写的**：
 界面上任何地方都不显示当前密钥，因为 API 根本没有返回它的途径 ——
 留空表示「不修改」，关闭登记是另一个显式按钮，不是"把框清空"。
 
@@ -353,6 +359,7 @@ curl.exe -s -X POST http://127.0.0.1:39472/api/enrollment `
 ```json
 {
   "version": 1,
+  "apiToken": "…",
   "enrollment": { "kind": "shared-secret", "token": "…" },
   "nodes": [{ "nodeId": "node-…", "token": "…", "nodeName": "…" }]
 }

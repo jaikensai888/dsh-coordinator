@@ -37,6 +37,8 @@ export const STATE_FILE_VERSION = 1
 
 /** What the Coordinator remembers across restarts. */
 export interface CoordinatorState {
+  /** Bearer token used by the operator API, when one has been configured. */
+  readonly apiToken?: string
   /** The rule by which unknown nodes may join. Absent means "closed". */
   readonly enrollment?: EnrollmentPolicy
   /** Approved nodes, revoked ones included. */
@@ -59,6 +61,9 @@ export interface StateFileRead {
    */
   readonly error?: string
 }
+
+/** Serialize direct callers too; Windows can reject concurrent replacement renames. */
+const stateWriteQueues = new Map<string, Promise<void>>()
 
 /**
  * Turn a configured path into an absolute file path.
@@ -114,6 +119,11 @@ function pickEnrollment(value: unknown): EnrollmentPolicy | undefined {
   return undefined
 }
 
+/** Read a credential while keeping blank values out of the runtime state. */
+function pickApiToken(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
 /**
  * Read the persisted state.
  *
@@ -154,8 +164,16 @@ export async function readStateFile(file: string): Promise<StateFileRead> {
   const nodes = Array.isArray(document['nodes'])
     ? document['nodes'].map(pickRecord).filter((record): record is NodeRecord => record !== undefined)
     : []
+  const apiToken = pickApiToken(document['apiToken'])
   const enrollment = pickEnrollment(document['enrollment'])
-  return { file, state: { nodes, ...(enrollment === undefined ? {} : { enrollment }) } }
+  return {
+    file,
+    state: {
+      nodes,
+      ...(apiToken === undefined ? {} : { apiToken }),
+      ...(enrollment === undefined ? {} : { enrollment }),
+    },
+  }
 }
 
 /**
@@ -167,9 +185,25 @@ export async function readStateFile(file: string): Promise<StateFileRead> {
  * @param file - absolute path from {@link resolveStateFile}.
  * @param state - the document to store.
  */
-export async function writeStateFile(file: string, state: CoordinatorState): Promise<void> {
+export function writeStateFile(file: string, state: CoordinatorState): Promise<void> {
+  const previous = stateWriteQueues.get(file) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(() => writeStateFileNow(file, state))
+  stateWriteQueues.set(file, next)
+  void next.then(
+    () => {
+      if (stateWriteQueues.get(file) === next) stateWriteQueues.delete(file)
+    },
+    () => {
+      if (stateWriteQueues.get(file) === next) stateWriteQueues.delete(file)
+    },
+  )
+  return next
+}
+
+async function writeStateFileNow(file: string, state: CoordinatorState): Promise<void> {
   const payload = {
     version: STATE_FILE_VERSION,
+    ...(state.apiToken === undefined ? {} : { apiToken: state.apiToken }),
     ...(state.enrollment === undefined ? {} : { enrollment: state.enrollment }),
     nodes: state.nodes.map(record => ({
       nodeId: record.nodeId,
@@ -226,6 +260,7 @@ export function describeState(state: CoordinatorState | undefined): Record<strin
     loaded: true,
     nodes: state.nodes.length,
     revoked: state.nodes.filter(record => record.revokedAt !== undefined).length,
+    apiToken: state.apiToken === undefined ? 'unset' : 'configured',
     enrollment: enrollment === undefined || enrollment.kind === 'closed'
       ? 'closed'
       : 'shared-secret',

@@ -369,6 +369,35 @@ describe('the bearer token', () => {
     expect(authorized.status).toBe(200)
     await expect(authorized.json()).resolves.toMatchObject({ ok: true, value: [READY_VIEW] })
   })
+
+  it('initializes and rotates the operator token from localhost without returning it', async () => {
+    let token: string | undefined
+    const { base } = await serveTracked(createStubHost(), {
+      getToken: () => token,
+      setToken: (next) => { token = next },
+    })
+
+    const before = await get(base, '/api/operator-token')
+    expect(before.status).toBe(200)
+    await expect(before.json()).resolves.toEqual({ ok: true, value: { configured: false, persisted: false } })
+
+    const first = await post(base, '/api/operator-token', { token: OPERATOR_TOKEN })
+    expect(first.status).toBe(200)
+    await expect(first.json()).resolves.toEqual({ ok: true, value: { configured: true, persisted: false } })
+
+    expect((await get(base, '/api/nodes')).status).toBe(401)
+    expect((await get(base, '/api/nodes', { authorization: `Bearer ${OPERATOR_TOKEN}` })).status).toBe(200)
+
+    const rotated = await post(base, '/api/operator-token', { token: 'operator-secret-2' }, {
+      authorization: `Bearer ${OPERATOR_TOKEN}`,
+    })
+    expect(rotated.status).toBe(200)
+    const rotatedBody = await rotated.text()
+    expect(rotatedBody).not.toContain('operator-secret-2')
+
+    expect((await get(base, '/api/nodes', { authorization: `Bearer ${OPERATOR_TOKEN}` })).status).toBe(401)
+    expect((await get(base, '/api/nodes', { authorization: 'Bearer operator-secret-2' })).status).toBe(200)
+  })
 })
 
 // ---------------------------------------------------------------- state routes

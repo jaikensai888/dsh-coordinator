@@ -2,10 +2,11 @@
 
 > 面向开发人员的反向工程看板：描述仓库当前已经实现的系统，而不是规划中的目标系统。
 >
-> 最后更新：2026-09-21 11:55
+> 最后更新：2026-09-22 10:01
 >
 > 事实来源：README.md、docs/GROUND-TRUTH.md、src/、ui/index.html、package.json。
-> 本仓库当前没有 01_PRD、02_TECH、03_DATAMODEL、04_UX_DESIGN，因此本图由源码和实测记录反向整理。
+> 01_PRD、02_TECH、03_DATAMODEL、04_UX_DESIGN、05_API 已基于当前源码和实测记录补齐；
+> 本图继续作为跨文档的系统关系总览。
 
 ---
 
@@ -140,7 +141,7 @@ sequenceDiagram
 | src/stream-hub.ts | stream 注册、seq 检查、有界缓冲、idle timeout、终态 | seq 从 1 递增；end/error 只接受第一个终态 |
 | src/sessions.ts | 五个会话 Remote 的端点名、包装参数、便捷请求构造 | list 使用 _request；page/create/prompt/follow 使用 request |
 | src/http-api.ts | /api 路由、鉴权、JSON/NDJSON、错误映射 | 节点错误保留 HTTP 200 + 原始 code；边界错误映射真实 HTTP 状态 |
-| src/ui.ts + ui/index.html | /ui 静态页面读取缓存和三栏操作台 | 页面可先加载；每个 API 调用仍需 Bearer token |
+| src/ui.ts + ui/index.html | /ui 静态页面读取缓存和三栏操作台 | 页面可先加载；配置 apiToken 时 API 调用使用 Bearer；远程无 token 时管理面 403 |
 | src/state-file.ts | 节点/登记规则 JSON 原子读写和脱敏描述 | 临时文件 + rename；日志不回显密钥 |
 | src/cli.ts | 命令行参数、启动横幅、优雅退出 | 可配置 port/host/path/token/state-file |
 | src/errors.ts + src/log.ts | 错误码、失败归一化、日志脱敏 | token、密钥和敏感对端文本不进入日志/API |
@@ -176,7 +177,12 @@ dsh-coordinator/
 ├── docs/
 │   ├── GROUND-TRUTH.md
 │   └── prd/
-│       └── 00_PRD_GRAPH.md
+│       ├── 00_PRD_GRAPH.md
+│       ├── 01_PRD.md
+│       ├── 02_TECH.md
+│       ├── 03_DATAMODEL.md
+│       ├── 04_UX_DESIGN.md
+│       └── 05_API.md
 ├── package.json
 ├── tsconfig.json
 ├── tsdown.config.ts
@@ -215,7 +221,8 @@ pnpm test
 生产边界：
 
 - 默认只监听回环地址；非回环绑定必须显式 allowInsecureBind，实际部署应把 TLS 放在前置代理。
-- 非回环绑定若未配置 apiToken，/api 不安装；回环绑定可直接安装 API。
+- 节点接入权限与管理权限分开：非回环绑定且未配置 apiToken 时，/api 和 /ui 仍安装，但远程管理请求统一返回 403；配置 apiToken 后远程 /api 请求需要 Bearer。
+- /ui 的 GET 页面为浏览器导航保留访问例外；页面发出的 /api 请求仍按管理鉴权执行。
 - 节点 token 等价于该节点机器上的完整 DSH 能力，生产环境应使用每节点独立 token。
 - 登记密钥只能设置/关闭，API/UI 只能看到 open、persisted、stateFile 等事实，不能读回密钥值。
 
@@ -445,10 +452,11 @@ sequenceDiagram
 | 文档 | 路径 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | 设计总览 | docs/prd/00_PRD_GRAPH.md | ✅ | 本文档，反向整理当前实现 |
-| 产品需求 | docs/prd/01_PRD.md | 未发现 | 当前没有独立 PRD |
-| 技术架构 | docs/prd/02_TECH.md | 未发现 | 当前架构事实已在本文档记录 |
-| 数据模型 | docs/prd/03_DATAMODEL.md | 未发现 | 当前无数据库，逻辑模型已在本文档记录 |
-| UX 设计 | docs/prd/04_UX_DESIGN.md | 未发现 | 当前 UI 事实已在本文档记录 |
+| 产品需求 | docs/prd/01_PRD.md | ✅ | 当前实现边界、角色、功能需求和验收口径 |
+| 技术架构 | docs/prd/02_TECH.md | ✅ | 运行时、协议、配置、部署和错误模型 |
+| 数据模型 | docs/prd/03_DATAMODEL.md | ✅ | 内存实体、状态转换和持久化 schema |
+| UX 设计 | docs/prd/04_UX_DESIGN.md | ✅ | 当前内置 UI 的信息架构和交互 |
+| API 文档 | docs/prd/05_API.md | ✅ | HTTP JSON/NDJSON 运维接口与示例 |
 
 ---
 
@@ -475,9 +483,9 @@ sequenceDiagram
 
 | 版本 | 日期 | 更新内容 | 来源 |
 | --- | --- | --- | --- |
-| 1.0 | 2026-09-21 | 首次生成当前实现反向工程总览；覆盖功能、架构、逻辑模型、UI、调用面和协议约束 | 源码 + README + GROUND-TRUTH |
+| 1.1 | 2026-09-22 | 一次性补齐 PRD、技术、数据模型、UX 和 API 文档，并同步当前管理面安全模型 | 源码 + README + GROUND-TRUTH |
 
-*当前版本：1.0 | 最后更新：2026-09-21 11:55*
+*当前版本：1.1 | 最后更新：2026-09-22 10:01*
 
 ### 7.2 验证证据
 
@@ -490,7 +498,7 @@ sequenceDiagram
 | [实测] | 状态文件跨重启恢复登记密钥和节点记录 | GROUND-TRUTH §9 |
 | [待验证] | 真机高并发、背压阈值、ws 超限交互、桌面 profile 热重载 | GROUND-TRUTH §4/§6/§8 |
 | [本轮验证] | TypeScript 类型检查通过（exit 0） | node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit |
-| [本轮验证] | Vitest 12 个文件、261 个测试：256 通过、5 失败 | node node_modules/vitest/vitest.mjs run；失败集中在 test/cli.test.ts 与 test/state.test.ts |
+| [本轮验证] | Vitest 12 个文件、263 个测试：258 通过、5 失败 | node node_modules/vitest/vitest.mjs run；失败集中在 test/cli.test.ts、test/server.test.ts 与 test/state.test.ts |
 | [环境限制] | pnpm typecheck/test 被 no-TTY 依赖完整性检查拦截；未将其误判为代码测试结果 | pnpm 输出 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY |
 
 ### 7.3 当前维护重点

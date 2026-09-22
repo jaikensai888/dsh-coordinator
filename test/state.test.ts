@@ -72,12 +72,14 @@ describe('reading and writing the state file', () => {
   it('round-trips the enrollment rule and the records', async () => {
     const file = join(await scratch(), 'state.json')
     await writeStateFile(file, {
+      apiToken: 'operator-secret',
       enrollment: { kind: 'shared-secret', token: SECRET },
       nodes: [{ nodeId: 'node-a', token: TOKEN, nodeName: 'desk', role: 'test' }],
     })
 
     const read = await readStateFile(file)
     expect(read.error).toBeUndefined()
+    expect(read.state?.apiToken).toBe('operator-secret')
     expect(read.state?.enrollment).toEqual({ kind: 'shared-secret', token: SECRET })
     expect(read.state?.nodes).toEqual([{ nodeId: 'node-a', token: TOKEN, nodeName: 'desk', role: 'test' }])
   })
@@ -149,9 +151,11 @@ describe('reading and writing the state file', () => {
 
   it('never puts the secret in the diagnostic shape', () => {
     const described = JSON.stringify(describeState({
+      apiToken: 'operator-secret',
       enrollment: { kind: 'shared-secret', token: SECRET },
       nodes: [{ nodeId: 'node-a', token: TOKEN }],
     }))
+    expect(described).not.toContain('operator-secret')
     expect(described).not.toContain(SECRET)
     expect(described).not.toContain(TOKEN)
     expect(described).toContain('shared-secret')
@@ -178,6 +182,7 @@ describe('changing the enrollment rule at runtime', () => {
 
   it('admits a node that presents the new secret, and refuses the old one', () => {
     const registry = new NodeRegistry({ enrollment: { kind: 'shared-secret', token: 'old-secret' } })
+    registry.authenticate({ nodeId: 'node-a', token: 'old-secret' })
     registry.setEnrollment({ kind: 'shared-secret', token: SECRET })
 
     expect(registry.authenticate({ nodeId: 'node-a', token: 'old-secret' })).toBeDefined()
@@ -236,7 +241,7 @@ describe('the enrollment route and persistence', () => {
     const before = await api(coordinator.address!.port, '/api/enrollment')
     expect(before.body.value).toMatchObject({ open: false, persisted: true })
     expect(before.body.value.stateFile).toBe(file)
-    expect(JSON.stringify(before.body)).not.toContain(file.replace(/\\/gu, '\\\\')) // no accidental dump
+    expect(JSON.stringify(before.body)).not.toContain(SECRET)
 
     await api(coordinator.address!.port, '/api/enrollment', {
       method: 'POST',
@@ -266,6 +271,32 @@ describe('the enrollment route and persistence', () => {
     expect(second.coordinator.enrollmentOpen).toBe(true)
     // And it is the *same* secret, not merely "some secret is configured".
     expect(second.coordinator.registry.authenticate({ nodeId: 'node-z', token: SECRET }).enrolled).toBe(true)
+  })
+
+  it('persists the operator token and requires it after a restart', async () => {
+    const directory = await scratch()
+    const file = join(directory, 'state.json')
+    const first = await start({ file })
+    const token = 'operator-token-that-survives'
+
+    const configured = await api(first.coordinator.address!.port, '/api/operator-token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    })
+    expect(configured.status).toBe(200)
+    expect(configured.body.value).toEqual({ configured: true, persisted: true })
+    await first.coordinator.flushState()
+    await first.coordinator.stop()
+    coordinators.splice(coordinators.indexOf(first.coordinator), 1)
+
+    const second = await start({ file })
+    const missing = await api(second.coordinator.address!.port, '/api/nodes')
+    expect(missing.status).toBe(401)
+    const authorized = await api(second.coordinator.address!.port, '/api/nodes', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(authorized.status).toBe(200)
+    expect(JSON.stringify(authorized.body)).not.toContain(token)
   })
 
   it('lets a command-line secret override the stored one, and rewrites the file', async () => {

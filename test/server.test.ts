@@ -167,19 +167,16 @@ describe('starting and stopping', () => {
     expect(restarted.stats().listening).toBe(true)
   })
 
-  it('does not install the operator API for an unprotected non-loopback bind', async () => {
+  it('keeps the operator API available on localhost for an unprotected non-loopback bind', async () => {
     const coordinator = await startCoordinator({ host: '0.0.0.0', allowInsecureBind: true })
     const port = coordinator.address?.port ?? 0
 
-    // No route answers at all: the service refuses to expose node management,
-    // and the WebSocket path still works.
+    // The listener may be reachable by nodes on other interfaces, but the
+    // operator API remains a localhost bootstrap surface until a token is set.
     for (const path of ['/api/stats', '/api/nodes']) {
       const response = await fetch(`http://127.0.0.1:${port}${path}`)
-      expect(response.status, path).toBe(404)
-      await expect(response.json()).resolves.toMatchObject({
-        ok: false,
-        error: { code: 'coordinator/invalid-arguments', message: `no route for ${path}` },
-      })
+      expect(response.status, path).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ ok: true })
     }
   })
 
