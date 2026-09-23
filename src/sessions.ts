@@ -46,6 +46,9 @@ export const DEFAULT_SESSION_PROMPT_ENDPOINT = 'session/prompt'
 /** Default endpoint behind {@link SessionsOptions.followEndpoint}. */
 export const DEFAULT_SESSION_FOLLOW_ENDPOINT = 'session/follow'
 
+/** Default idle deadline for a quiet `session/follow` stream: five minutes. */
+export const DEFAULT_SESSION_FOLLOW_IDLE_TIMEOUT_MS = 5 * 60 * 1000
+
 /**
  * Wrapper argument for `session/list`.
  *
@@ -110,9 +113,9 @@ export interface SessionsOptions {
   /**
    * Idle deadline for a follow stream.
    *
-   * Defaults to the Coordinator's own `streamIdleTimeoutMs`. A follow stream is
+   * Defaults to {@link DEFAULT_SESSION_FOLLOW_IDLE_TIMEOUT_MS}. A follow stream is
    * legitimately quiet while the agent thinks, so a deployment that follows long
-   * sessions should raise this rather than be surprised by a dropped stream.
+   * sessions can raise this rather than be surprised by a dropped stream.
    */
   readonly followIdleTimeoutMs?: number
   /** Buffered-value ceiling for a follow stream. Defaults to `maxBufferedValues`. */
@@ -175,7 +178,10 @@ export function resolveSessionsOptions(options: SessionsOptions = {}): ResolvedS
     promptMode: options.promptMode === undefined
       ? DEFAULT_PROMPT_MODE
       : promptMode(options.promptMode, 'promptMode'),
-    followIdleTimeoutMs: optionalDuration(options.followIdleTimeoutMs, 'followIdleTimeoutMs'),
+    followIdleTimeoutMs: optionalDuration(
+      options.followIdleTimeoutMs ?? DEFAULT_SESSION_FOLLOW_IDLE_TIMEOUT_MS,
+      'followIdleTimeoutMs',
+    ),
     followMaxBufferedValues: optionalCount(options.followMaxBufferedValues, 'followMaxBufferedValues'),
   }
 }

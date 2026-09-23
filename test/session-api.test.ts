@@ -131,6 +131,7 @@ describe('the session request builders', () => {
       promptEndpoint: 'session/prompt',
       followEndpoint: 'session/follow',
       promptMode: 'queue',
+      followIdleTimeoutMs: 5 * 60 * 1000,
     })
   })
 })
