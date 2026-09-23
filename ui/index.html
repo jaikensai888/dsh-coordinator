@@ -562,6 +562,250 @@
     #sidebar { min-height: 360px; max-height: 52vh; }
     main > section { min-height: 360px; }
   }
+
+  /* ----------------------------------------------------- conversation surface */
+  /*
+    The right pane follows the DeepSeekHarness reading order: messages are the
+    primary objects, while protocol housekeeping is a quiet expandable trace.
+    The surrounding coordinator stays a compact operator console; this surface
+    only changes how one session is read and composed.
+  */
+  #log {
+    padding: 0;
+    background:
+      radial-gradient(circle at 50% -12%, rgba(49, 133, 255, .08), transparent 38%),
+      #08121f;
+    scroll-behavior: smooth;
+  }
+  .conversation {
+    width: min(100%, 900px);
+    margin: 0 auto;
+    padding: 20px clamp(14px, 4vw, 42px) 28px;
+  }
+  .conversation-empty {
+    display: grid;
+    place-items: center;
+    min-height: 220px;
+    color: var(--faint);
+    text-align: center;
+    font-size: 12.5px;
+    line-height: 1.8;
+  }
+  .conversation-context {
+    margin: 0 4px 17px;
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .history-loader {
+    display: flex;
+    justify-content: center;
+    margin: 0 0 18px;
+  }
+  .history-loader button {
+    border-radius: 999px;
+    padding: 6px 13px;
+    color: #b9d5ff;
+    background: rgba(20, 47, 80, .7);
+    border-color: #2a527f;
+    font-size: 11px;
+  }
+  .history-loader button.is-loading { color: var(--dim); }
+
+  .message-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin: 18px 0;
+  }
+  .message-row.user { justify-content: flex-end; }
+  .message-row.assistant { justify-content: flex-start; }
+  .message-row.process { margin: 7px 0; }
+  .message-avatar {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    margin-top: 2px;
+    border: 1px solid #2b4c6d;
+    border-radius: 8px;
+    background: #10263f;
+    color: #9fc4f5;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .2px;
+  }
+  .message-row.assistant .message-avatar {
+    border-color: #245b48;
+    background: #102b29;
+    color: #7de8ae;
+  }
+  .message-stack {
+    min-width: 0;
+    max-width: min(82%, 760px);
+  }
+  .message-row.user .message-stack { display: flex; flex-direction: column; align-items: flex-end; }
+  .message-bubble {
+    min-width: 0;
+    padding: 10px 13px;
+    border: 1px solid #28415f;
+    border-radius: 14px 14px 14px 5px;
+    background: #111f31;
+    color: #edf3fb;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .message-row.user .message-bubble {
+    border-color: #2d69a8;
+    border-radius: 14px 14px 5px 14px;
+    background: #0e3766;
+    color: #e4efff;
+  }
+  .message-bubble.live { border-color: #317d69; box-shadow: 0 0 0 1px rgba(53, 212, 122, .08); }
+  .message-bubble.live::after {
+    content: '▌';
+    display: inline-block;
+    margin-left: 2px;
+    color: var(--ok);
+    animation: blink 1s steps(2, start) infinite;
+  }
+  .message-meta {
+    margin: 0 4px 5px;
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .message-row.user .message-meta { text-align: right; }
+  .markdown { min-width: 0; }
+  .markdown p { margin: 0 0 8px; white-space: pre-wrap; }
+  .markdown p:last-child { margin-bottom: 0; }
+  .markdown code {
+    padding: 1px 5px;
+    border: 1px solid #29425c;
+    border-radius: 4px;
+    background: #0a1726;
+    color: #b9d5ff;
+    font-family: var(--mono);
+    font-size: .92em;
+  }
+  .markdown pre {
+    margin: 9px 0 2px;
+    padding: 11px 12px;
+    overflow-x: auto;
+    border: 1px solid #29425c;
+    border-radius: 8px;
+    background: #091522;
+  }
+  .markdown pre code {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #c8dbf5;
+    white-space: pre;
+  }
+  .code-language {
+    display: block;
+    margin: -3px 0 5px;
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .7px;
+  }
+  .message-row.process details {
+    border: 1px solid #1d3550;
+    border-radius: 9px;
+    background: rgba(13, 29, 48, .72);
+  }
+  .message-row.process summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    cursor: pointer;
+    color: #94aaca;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    list-style: none;
+  }
+  .message-row.process summary::-webkit-details-marker { display: none; }
+  .message-row.process summary::before { content: '›'; color: #6480a1; font-size: 14px; line-height: 1; }
+  .message-row.process details[open] summary::before { transform: rotate(90deg); }
+  .process-count { color: var(--faint); }
+  .process-body { padding: 0 10px 9px 27px; }
+  .process-item {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0;
+    border-top: 1px solid rgba(36, 60, 86, .55);
+    color: #778da8;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .process-item:first-child { border-top: 0; }
+  .process-item .process-type { flex: none; color: #9ab4d2; font-family: var(--mono); font-size: 10px; }
+  .process-item .process-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .local-notice {
+    margin: 8px auto;
+    max-width: 680px;
+    padding: 7px 10px;
+    border: 1px solid #3b4b61;
+    border-radius: 7px;
+    background: rgba(20, 32, 48, .58);
+    color: var(--dim);
+    font-size: 11px;
+    white-space: pre-wrap;
+  }
+  .local-notice.err { border-color: #6b3d40; color: #f0aaa5; }
+  .local-notice.sys { border-color: #65512a; color: #e8c777; }
+  .local-notice.raw { color: var(--faint); font-family: var(--mono); }
+
+  #composer {
+    display: block;
+    padding: 12px clamp(12px, 4vw, 42px) 15px;
+    border-top: 1px solid #1b3049;
+    background: #08121f;
+  }
+  .composer-shell {
+    width: min(100%, 900px);
+    margin: 0 auto;
+    padding: 9px 10px 8px;
+    border: 1px solid #2a4a6d;
+    border-radius: 12px;
+    background: #0b1a2b;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .16), inset 0 0 0 1px rgba(49, 133, 255, .04);
+  }
+  .composer-top, .composer-footer { display: flex; align-items: center; gap: 8px; }
+  .composer-top { justify-content: space-between; padding: 0 3px 6px; }
+  .composer-label { color: #b0c6e2; font-size: 10px; font-weight: 650; letter-spacing: .2px; }
+  .composer-hint { color: var(--faint); font-family: var(--mono); font-size: 9px; }
+  #composer textarea {
+    display: block;
+    height: 74px;
+    min-height: 52px;
+    padding: 7px 4px;
+    resize: vertical;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    line-height: 1.65;
+  }
+  #composer textarea:focus { border: 0; box-shadow: none; }
+  .composer-footer { justify-content: space-between; padding: 5px 1px 0; }
+  .composer-footer .composer-note { color: var(--faint); font-size: 10px; }
+  #composer .side { display: flex; flex-direction: row; gap: 7px; align-items: center; }
+  #composer .side button { padding: 6px 12px; border-radius: 7px; }
+  #send { min-width: 58px; }
+
+  @media (max-width: 600px) {
+    .conversation { padding: 14px 10px 20px; }
+    .message-stack { max-width: 88%; }
+    #composer { padding: 8px 8px 10px; }
+    .composer-hint { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -678,10 +922,19 @@
     </div>
     <div id="log"><div class="empty">选一个会话开始</div></div>
     <div id="composer">
-      <textarea id="text" placeholder="给这个会话发一条消息…（Enter 发送，Shift+Enter 换行）" disabled></textarea>
-      <div class="side">
-        <button id="send" class="primary" disabled>发送</button>
-        <button id="newinsession" disabled title="在这个节点上新建会话并切换过去">新建会话</button>
+      <div class="composer-shell">
+        <div class="composer-top">
+          <span class="composer-label">会话输入</span>
+          <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+        </div>
+        <textarea id="text" placeholder="给这个会话发一条消息…" disabled></textarea>
+        <div class="composer-footer">
+          <span class="composer-note">后端会话逻辑保持不变</span>
+          <div class="side">
+            <button id="newinsession" disabled title="在这个节点上新建会话并切换过去">新建会话</button>
+            <button id="send" class="primary" disabled>发送</button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -700,7 +953,9 @@ const state = {
   sessions: [],
   sessionId: null,
   follow: null,       // AbortController for the open follow stream
-  entries: [],        // rendered frames, so a reconnect can replay them
+  entries: [],        // local notices (remote history lives in `conversation`)
+  conversation: createConversationState(),
+  historyLoading: false,
 }
 
 const $ = id => document.getElementById(id)
@@ -865,56 +1120,19 @@ async function api (path, body, signal) {
 
 // ------------------------------------------------------------------ log
 
-function clearLog (placeholder) {
-  state.entries = []
-  const log = $('log')
-  log.replaceChildren()
-  if (placeholder) log.append(el('div', 'empty', placeholder))
+/* BEGIN conversation model */
+function createConversationState () {
+  return {
+    header: null,
+    cursor: null,
+    hasMore: false,
+    items: [],
+    seen: new Set(),
+    liveAssistant: null,
+  }
 }
 
-/**
- * Append one frame to the message pane.
- * @returns the entry element, so a streaming renderer can keep appending to it.
- */
-function addEntry ({ kind, body, className, time, compact }) {
-  const log = $('log')
-  const placeholder = log.querySelector('.empty')
-  if (placeholder) placeholder.remove()
-
-  const frame = el('div', 'frame' + (className ? ' ' + className : '') + (compact ? ' compact' : ''))
-  const meta = el('div', 'meta')
-  meta.append(el('span', 'kind', kind))
-  meta.append(el('span', null, time ? new Date(time).toLocaleTimeString() : new Date().toLocaleTimeString()))
-  frame.append(meta)
-  const bodyEl = el('div', 'body', body)
-  frame.append(bodyEl)
-  log.append(frame)
-  log.scrollTop = log.scrollHeight
-
-  state.entries.push({ kind, body, className, time, compact })
-  return { element: frame, body: bodyEl }
-}
-
-/** Add a line that came from this page rather than from a node. */
-const note = (text, className) => addEntry({ kind: '本地', body: text, className: className || 'sys' })
-
-// ------------------------------------------------- event payload rendering
-//
-// The event vocabulary below is what a REAL DSH emits on `session/follow`; it was
-// read off a live node, not guessed. Three shapes matter:
-//
-//   user/message      { content: [{type:'text', text}], role:'user', id, source }
-//   assistant/message { turn, step, message: {role:'assistant', content:[…]}, usage, stream }
-//   system/message    { turn, step, message: {role:'system', content:[…]} }
-//
-// plus the housekeeping events (`turn/start`, `step/start`, `request/header`,
-// `agent/inbox/spliced`, …) that carry no prose at all. An earlier version looked
-// for a top-level `text`/`content` string and therefore rendered *every* real
-// message as raw JSON — the fake node hid that, because its events were written to
-// match the renderer instead of the other way round.
-
-/** Flatten a DSH content array into text. */
-function contentText (content) {
+function conversationContentText (content) {
   if (!Array.isArray(content)) return ''
   const parts = []
   for (const part of content) {
@@ -922,144 +1140,469 @@ function contentText (content) {
     if (part.type === 'text' && typeof part.text === 'string') parts.push(part.text)
     else if (part.type === 'image') parts.push('[图片]')
     else if (part.type === 'file') parts.push('[文件]')
-    else parts.push('[' + (part.type || '?') + ']')
+    else if (typeof part.type === 'string') parts.push('[' + part.type + ']')
   }
   return parts.join('')
 }
 
-/** The message object inside an event payload, whichever wrapper it used. */
-function messageOf (data) {
+function conversationMessageOf (data) {
   if (!data || typeof data !== 'object') return undefined
   if (data.message && typeof data.message === 'object' && Array.isArray(data.message.content)) return data.message
   if (Array.isArray(data.content)) return data
   return undefined
 }
 
-/** Turn one node event into something worth reading. */
-function describeEvent (event) {
-  const data = event ? event.data : undefined
-  if (typeof data === 'string') return { text: data, plain: true, kind: 'note' }
+function conversationChunkText (chunk) {
+  if (typeof chunk === 'string') return chunk
+  if (!chunk || typeof chunk !== 'object') return ''
+  if (typeof chunk.text === 'string') return chunk.text
+  if (typeof chunk.delta === 'string') return chunk.delta
+  if (Array.isArray(chunk.texts)) return chunk.texts.join('')
+  if (chunk.block && typeof chunk.block.text === 'string') return chunk.block.text
+  return ''
+}
 
-  const message = messageOf(data)
-  if (message !== undefined) {
-    const text = contentText(message.content)
-    if (text !== '') {
-      const role = message.role || String(event.type || '').split('/')[0]
-      const kind = role === 'assistant' ? 'assistant' : role === 'user' ? 'user' : 'system'
-      return { text, plain: true, kind }
+function conversationEventKey (event) {
+  if (event && typeof event.seq === 'number' && Number.isFinite(event.seq)) return 'seq:' + event.seq
+  let data
+  try { data = JSON.stringify(event?.data) } catch { data = String(event?.data) }
+  return [event?.type || '?', event?.time || 0, data || ''].join('|')
+}
+
+function conversationProcessLabel (type) {
+  const labels = {
+    'turn/start': '回合开始',
+    'turn/end': '回合结束',
+    'step/start': '步骤开始',
+    'step/end': '步骤结束',
+    'request/header': '请求信息',
+    'request/context': '上下文',
+    'agent/inbox/spliced': '队列更新',
+    'tool/call': '工具调用',
+    'tool/result': '工具结果',
+    'tool/error': '工具错误',
+  }
+  if (labels[type]) return labels[type]
+  if (type.startsWith('tool/')) return '工具'
+  if (type.startsWith('request/')) return '请求'
+  if (type.startsWith('agent/')) return '运行状态'
+  return type || '事件'
+}
+
+function conversationCompactData (data) {
+  if (typeof data === 'string') return data
+  if (!data || typeof data !== 'object') return data === undefined ? '' : String(data)
+  if (typeof data.text === 'string' && data.text !== '') return data.text
+  if (typeof data.title === 'string' && data.title !== '') return data.title
+  const quiet = data.turn !== undefined || data.step !== undefined
+  if (quiet) return ''
+  try { return JSON.stringify(data, null, 2) } catch { return String(data) }
+}
+
+function conversationEntryFromEvent (event) {
+  if (!event || typeof event !== 'object') return null
+  const type = typeof event.type === 'string' ? event.type : 'event'
+  const data = event.data
+  const message = conversationMessageOf(data)
+  if (message) {
+    const role = message.role || type.split('/')[0]
+    const text = conversationContentText(message.content)
+    if (role === 'user' || role === 'assistant') {
+      return {
+        kind: role,
+        role,
+        text,
+        label: role === 'user' ? '你' : 'AI',
+        eventType: type,
+        seq: event.seq,
+        time: event.time,
+        turn: data?.turn,
+        step: data?.step,
+      }
+    }
+    return {
+      kind: 'process',
+      role: 'system',
+      text,
+      label: '系统消息',
+      eventType: type,
+      seq: event.seq,
+      time: event.time,
+      turn: data?.turn,
+      step: data?.step,
     }
   }
 
-  if (data && typeof data === 'object') {
-    if (typeof data.title === 'string' && data.title !== '') return { text: data.title, plain: true, kind: 'title' }
-    if (typeof data.text === 'string' && data.text !== '') return { text: data.text, plain: true, kind: 'note' }
+  // The bundled fake node predates the real DSH `*/message` payload shape. Keep
+  // its smoke-test events readable without weakening the real-shape path above.
+  const legacyRole = type === 'user-message' ? 'user' : type === 'assistant-message' ? 'assistant' : null
+  if (legacyRole) {
+    return {
+      kind: legacyRole,
+      role: legacyRole,
+      text: typeof data?.text === 'string' ? data.text : conversationCompactData(data),
+      label: legacyRole === 'user' ? '你' : 'AI',
+      eventType: type,
+      seq: event.seq,
+      time: event.time,
+    }
   }
 
-  let json
-  try {
-    json = JSON.stringify(data, null, 2)
-  } catch {
-    json = String(data)
+  return {
+    kind: 'process',
+    role: 'system',
+    text: conversationCompactData(data),
+    label: conversationProcessLabel(type),
+    eventType: type,
+    seq: event.seq,
+    time: event.time,
+    turn: data?.turn,
+    step: data?.step,
   }
-  return { text: json === undefined ? '(无数据)' : json, plain: false, kind: 'raw' }
 }
 
-/** How each kind is labelled and coloured. */
-const KIND_STYLE = {
-  user: { label: '你', className: 'plain user' },
-  assistant: { label: 'AI', className: 'plain assistant' },
-  system: { label: '系统', className: 'system compact' },
-  title: { label: '标题', className: 'system compact' },
-  note: { label: '事件', className: 'plain' },
-  raw: { label: '事件', className: 'raw compact' },
+function conversationEntryFromRecord (record) {
+  if (!record || typeof record !== 'object' || !record.event) return null
+  const event = record.event
+  if (record.type !== 'chunks') return conversationEntryFromEvent(event)
+
+  const data = event.data || {}
+  if (event.type === 'chunkrow/text-chunks' || event.type === 'chunkrow/reasoning-chunks') {
+    const text = Array.isArray(data.texts) ? data.texts.join('') : ''
+    return {
+      kind: 'assistant',
+      role: 'assistant',
+      text,
+      label: event.type === 'chunkrow/reasoning-chunks' ? '思考' : 'AI',
+      eventType: event.type,
+      seq: event.seq,
+      time: event.time,
+      chunk: true,
+    }
+  }
+  if (event.type === 'chunkrow/tool-call-chunks') {
+    const args = Array.isArray(data.args) ? data.args : []
+    let text
+    try { text = args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('') } catch { text = String(args) }
+    return {
+      kind: 'process',
+      role: 'system',
+      text,
+      label: '工具参数',
+      eventType: event.type,
+      seq: event.seq,
+      time: event.time,
+      chunk: true,
+    }
+  }
+  return conversationEntryFromEvent(event)
 }
+
+function conversationMatchesLive (entry, live) {
+  if (!live || entry?.kind !== 'assistant' || entry.text === '' || live.text === '') return false
+  return entry.text === live.text || entry.text.includes(live.text) || live.text.includes(entry.text)
+}
+
+function appendConversationRecord (state, record, prepend = false) {
+  const event = record?.event
+  if (!event) return
+  const key = (record.type || 'event') + ':' + conversationEventKey(event)
+  if (state.seen.has(key)) return
+  state.seen.add(key)
+  const entry = conversationEntryFromRecord(record)
+  if (!entry) return
+  if (entry.kind === 'user') {
+    const pendingIndex = state.items.findIndex(item => item.pending === true && item.text === entry.text)
+    if (pendingIndex >= 0) state.items.splice(pendingIndex, 1)
+  }
+  if (conversationMatchesLive(entry, state.liveAssistant)) state.liveAssistant = null
+  if (prepend) state.items.unshift(entry)
+  else state.items.push(entry)
+}
+
+function prependConversationRecords (state, records, hasMore) {
+  const page = {
+    ...state,
+    items: [],
+    seen: new Set(state.seen),
+  }
+  for (const record of Array.isArray(records) ? records : []) appendConversationRecord(page, record)
+  state.items = page.items.concat(state.items)
+  state.seen = page.seen
+  state.liveAssistant = page.liveAssistant
+  state.hasMore = hasMore === true
+  return state
+}
+
+function applyConversationFrame (state, frame) {
+  if (!frame || typeof frame !== 'object') return state
+  if (frame.type === 'snapshot') {
+    state.header = frame.header || null
+    state.cursor = typeof frame.cursor === 'number' ? frame.cursor : null
+    state.hasMore = frame.hasMore === true
+    state.items = []
+    state.seen = new Set()
+    state.liveAssistant = null
+    for (const record of Array.isArray(frame.records) ? frame.records : []) appendConversationRecord(state, record)
+    return state
+  }
+  if (frame.type === 'event' && frame.event) {
+    appendConversationRecord(state, { type: 'event', event: frame.event })
+    if (typeof frame.event.seq === 'number' && (state.cursor === null || frame.event.seq > state.cursor)) state.cursor = frame.event.seq
+    return state
+  }
+  if (frame.type !== 'assistant-stream') return state
+
+  const inner = frame.frame || {}
+  if (inner.type === 'start') {
+    state.liveAssistant = { text: '', active: true, time: Date.now() }
+  } else if (inner.type === 'chunk') {
+    const delta = conversationChunkText(inner.chunk)
+    if (delta !== '') {
+      if (!state.liveAssistant) state.liveAssistant = { text: '', active: true, time: Date.now() }
+      state.liveAssistant.text += delta
+      state.liveAssistant.active = true
+    }
+  } else if (inner.type === 'end' && state.liveAssistant) {
+    state.liveAssistant.active = false
+  }
+  return state
+}
+
+function markdownBlocks (text) {
+  const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n')
+  const blocks = []
+  let prose = []
+  let code = null
+  const flushProse = () => {
+    const value = prose.join('\n').trim()
+    if (value !== '') blocks.push({ kind: 'text', text: value })
+    prose = []
+  }
+  for (const line of lines) {
+    const fence = line.trim().match(/^```\s*([^`]*)$/u)
+    if (fence) {
+      if (code) {
+        blocks.push({ kind: 'code', language: code.language, text: code.lines.join('\n') })
+        code = null
+      } else {
+        flushProse()
+        code = { language: fence[1].trim(), lines: [] }
+      }
+    } else if (code) {
+      code.lines.push(line)
+    } else {
+      prose.push(line)
+    }
+  }
+  if (code) blocks.push({ kind: 'code', language: code.language, text: code.lines.join('\n') })
+  flushProse()
+  return blocks
+}
+/* END conversation model */
+
+function clearLog (placeholder) {
+  state.entries = []
+  state.conversation = createConversationState()
+  state.historyLoading = false
+  const log = $('log')
+  log.replaceChildren()
+  if (placeholder) log.append(el('div', 'empty', placeholder))
+}
+
+function renderInlineMarkdown (target, text) {
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*)/gu
+  let cursor = 0
+  for (const match of String(text).matchAll(pattern)) {
+    if (match.index > cursor) target.append(document.createTextNode(String(text).slice(cursor, match.index)))
+    const token = match[0]
+    if (token.startsWith('`')) target.append(el('code', null, token.slice(1, -1)))
+    else target.append(el('strong', null, token.slice(2, -2)))
+    cursor = match.index + token.length
+  }
+  if (cursor < String(text).length) target.append(document.createTextNode(String(text).slice(cursor)))
+}
+
+function renderMarkdown (target, text) {
+  const blocks = markdownBlocks(text)
+  if (blocks.length === 0) {
+    target.append(el('p', null, ''))
+    return
+  }
+  for (const block of blocks) {
+    if (block.kind === 'code') {
+      const pre = el('pre')
+      if (block.language) pre.append(el('span', 'code-language', block.language))
+      pre.append(el('code', null, block.text))
+      target.append(pre)
+    } else {
+      const paragraph = el('p')
+      renderInlineMarkdown(paragraph, block.text)
+      target.append(paragraph)
+    }
+  }
+}
+
+function messageTime (time) {
+  return typeof time === 'number' && Number.isFinite(time)
+    ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : ''
+}
+
+function renderConversationMessage (item, live = false) {
+  const role = item.kind === 'user' ? 'user' : 'assistant'
+  const row = el('article', 'message-row ' + role)
+  const avatar = el('div', 'message-avatar', role === 'user' ? '你' : item.label === '思考' ? '思' : 'AI')
+  avatar.setAttribute('aria-hidden', 'true')
+  const stack = el('div', 'message-stack')
+  const metaBits = [item.label || (role === 'user' ? '你' : 'AI')]
+  const time = messageTime(item.time)
+  if (time) metaBits.push(time)
+  if (item.pending) metaBits.push('发送中')
+  if (live) metaBits.push(item.active ? '生成中' : '已完成')
+  const meta = el('div', 'message-meta', metaBits.join(' · '))
+  const bubble = el('div', 'message-bubble' + (live && item.active ? ' live' : ''))
+  const markdown = el('div', 'markdown')
+  renderMarkdown(markdown, item.text || '')
+  bubble.append(markdown)
+  stack.append(meta, bubble)
+  if (role === 'user') row.append(stack, avatar)
+  else row.append(avatar, stack)
+  return row
+}
+
+function renderConversationProcess (items) {
+  const row = el('div', 'message-row process')
+  const details = el('details')
+  const summary = el('summary')
+  const turn = items.find(item => item.turn !== undefined)?.turn
+  const label = turn === undefined ? '运行过程' : '运行过程 · 回合 ' + turn
+  summary.append(el('span', null, label), el('span', 'process-count', '（' + items.length + ' 项）'))
+  const body = el('div', 'process-body')
+  for (const item of items) {
+    const line = el('div', 'process-item')
+    line.append(el('span', 'process-type', item.label || item.eventType || '事件'))
+    line.append(el('span', 'process-text', item.text || item.eventType || '无附加内容'))
+    body.append(line)
+  }
+  details.append(summary, body)
+  row.append(details)
+  return row
+}
+
+function renderConversationNotice (entry) {
+  const className = String(entry.className || 'sys').split(/\s+/u).filter(Boolean).pop() || 'sys'
+  return el('div', 'local-notice ' + className, entry.body)
+}
+
+function renderConversation ({ forceBottom = false } = {}) {
+  const log = $('log')
+  const previousBottom = log.scrollHeight - log.scrollTop
+  const wasAtBottom = previousBottom - log.clientHeight < 80
+  const conversation = state.conversation || createConversationState()
+  state.conversation = conversation
+  const root = el('div', 'conversation')
+
+  if (conversation.header) {
+    const header = conversation.header
+    const context = el('div', 'conversation-context')
+    const bits = ['历史 ' + conversation.items.length + ' 项']
+    if (header.cwd) bits.push(String(header.cwd))
+    if (conversation.hasMore) bits.push('可加载更早记录')
+    context.textContent = bits.join(' · ')
+    root.append(context)
+  }
+
+  if (conversation.hasMore) {
+    const loader = el('div', 'history-loader')
+    const button = el('button', state.historyLoading ? 'is-loading' : '', state.historyLoading ? '加载中…' : '加载更早消息')
+    button.type = 'button'
+    button.disabled = state.historyLoading
+    button.onclick = () => { void loadOlderHistory() }
+    loader.append(button)
+    root.append(loader)
+  }
+
+  let processItems = []
+  const flushProcess = () => {
+    if (processItems.length > 0) root.append(renderConversationProcess(processItems))
+    processItems = []
+  }
+  for (const item of conversation.items) {
+    if (item.kind === 'process') processItems.push(item)
+    else {
+      flushProcess()
+      root.append(renderConversationMessage(item))
+    }
+  }
+  flushProcess()
+
+  if (conversation.liveAssistant && conversation.liveAssistant.text !== '') {
+    root.append(renderConversationMessage({
+      kind: 'assistant',
+      label: 'AI',
+      text: conversation.liveAssistant.text,
+      time: conversation.liveAssistant.time,
+      active: conversation.liveAssistant.active,
+    }, true))
+  }
+  for (const entry of state.entries) root.append(renderConversationNotice(entry))
+  if (root.children.length === 0) root.append(el('div', 'conversation-empty', '这条会话还没有可展示的消息'))
+
+  log.replaceChildren(root)
+  if (forceBottom || wasAtBottom) log.scrollTop = log.scrollHeight
+  else log.scrollTop = Math.max(0, log.scrollHeight - previousBottom)
+}
+
+/** Add a line that came from this page rather than from a node. */
+function addEntry ({ kind, body, className, time, compact }) {
+  state.entries.push({ kind, body: String(body ?? ''), className, time, compact })
+  renderConversation({ forceBottom: true })
+  return { element: $('log').querySelector('.local-notice:last-child'), body: $('log').querySelector('.local-notice:last-child') }
+}
+
+const note = (text, className) => addEntry({ kind: '本地', body: text, className: className || 'sys' })
 
 /** Render one `session/follow` frame. */
 function renderFollowFrame (frame) {
   if (!frame || typeof frame !== 'object') return
 
   if (frame.type === 'snapshot') {
-    const records = Array.isArray(frame.records) ? frame.records : []
     state.entries = []
-    $('log').replaceChildren()
-    const header = frame.header || {}
-    note(
-      '会话快照：' + (header.id || state.sessionId || '?') +
-      (header.cwd ? '\n工作目录：' + header.cwd : '') +
-      '\n历史 ' + records.length + ' 条' + (frame.hasMore ? '（还有更多）' : ''),
-    )
-    for (const record of records) {
-      if (record && record.type === 'event' && record.event) renderEvent(record.event)
-    }
+    state.historyLoading = false
+    applyConversationFrame(state.conversation, frame)
+    renderConversation({ forceBottom: true })
     return
   }
 
   if (frame.type === 'event' && frame.event) {
-    renderEvent(frame.event)
+    applyConversationFrame(state.conversation, frame)
+    renderConversation()
     return
   }
 
   // Live model output, only sent when the caller asked for `assistantStream`.
   if (frame.type === 'assistant-stream') {
-    renderAssistantStream(frame.frame || {})
+    applyConversationFrame(state.conversation, frame)
+    renderConversation({ forceBottom: true })
     return
   }
 
-  addEntry({ kind: frame.type || '未知帧', body: JSON.stringify(frame, null, 2), className: 'raw compact' })
+  let body
+  try { body = JSON.stringify(frame, null, 2) } catch { body = String(frame) }
+  addEntry({ kind: frame.type || '未知帧', body, className: 'raw compact' })
 }
 
 function renderEvent (event) {
-  const { text, kind } = describeEvent(event)
-  const style = KIND_STYLE[kind] || KIND_STYLE.raw
-  addEntry({
-    kind: style.label + ' · ' + (event.type || '?'),
-    body: text,
-    className: style.className,
-    time: typeof event.time === 'number' ? event.time : undefined,
-    compact: style.className.includes('compact'),
-  })
+  applyConversationFrame(state.conversation, { type: 'event', event })
+  renderConversation()
 }
 
 // ---------------------------------------------------- live assistant stream
 
-/** The entry the live stream is appending to, if a turn is in flight. */
-let liveEntry = null
-
-/**
- * Pull text out of one assistant-stream chunk.
- *
- * The chunk is an opaque `JsonValue` in the protocol, so this accepts every shape
- * the LLM streamer is known to use rather than assuming one. A shape it does not
- * recognise is dropped instead of rendered as `[object Object]`.
- */
-function chunkText (chunk) {
-  if (typeof chunk === 'string') return chunk
-  if (!chunk || typeof chunk !== 'object') return ''
-  if (typeof chunk.text === 'string') return chunk.text
-  if (typeof chunk.delta === 'string') return chunk.delta
-  if (Array.isArray(chunk.texts)) return chunk.texts.join('')
-  if (chunk.block && typeof chunk.block.text === 'string' && chunk.type === 'block-end') return chunk.block.text
-  return ''
-}
-
 function renderAssistantStream (inner) {
-  if (inner.type === 'start') {
-    liveEntry = null
-    return
-  }
-  if (inner.type === 'end') {
-    if (liveEntry) liveEntry.element.classList.remove('streaming')
-    liveEntry = null
-    return
-  }
-  if (inner.type !== 'chunk') return
-  const delta = chunkText(inner.chunk)
-  if (delta === '') return
-  if (liveEntry === null) {
-    liveEntry = addEntry({ kind: 'AI · 生成中', body: '', className: 'plain assistant streaming' })
-  }
-  liveEntry.body.textContent += delta
-  $('log').scrollTop = $('log').scrollHeight
+  applyConversationFrame(state.conversation, { type: 'assistant-stream', frame: inner })
+  renderConversation({ forceBottom: true })
 }
 
 // ------------------------------------------------------------------ nodes
@@ -1467,6 +2010,41 @@ async function openFollow (sessionId) {
   }
 }
 
+/** Load one message-aligned page before the current follow snapshot. */
+async function loadOlderHistory () {
+  const sessionId = state.sessionId
+  const conversation = state.conversation
+  if (!sessionId || !state.nodeId || !conversation?.hasMore || state.historyLoading) return
+  const first = conversation.items.find(item => typeof item.seq === 'number')
+  if (conversation.cursor === null || !first) {
+    note('暂时无法定位更早消息。', 'sys')
+    return
+  }
+
+  state.historyLoading = true
+  renderConversation()
+  try {
+    const value = await api('/api/session/page', {
+      nodeId: state.nodeId,
+      request: {
+        address: { kind: 'session', sessionId },
+        throughSeq: conversation.cursor,
+        beforeSeq: first.seq,
+        maxMessages: 50,
+      },
+    })
+    if (state.sessionId !== sessionId) return
+    const records = Array.isArray(value?.records) ? value.records : []
+    prependConversationRecords(conversation, records, value?.hasMore === true)
+    if (records.length === 0 && conversation.hasMore) conversation.hasMore = false
+  } catch (error) {
+    note('加载更早消息失败：' + (error.message || error), 'err')
+  } finally {
+    state.historyLoading = false
+    if (state.sessionId === sessionId) renderConversation()
+  }
+}
+
 /** Handle one NDJSON envelope from `/api/session/follow`. */
 function handleStreamLine (line) {
   let envelope
@@ -1526,7 +2104,16 @@ async function send () {
   if (!text || !state.sessionId || !state.nodeId) return
   $('text').value = ''
   $('send').disabled = true
-  addEntry({ kind: '我 → ' + state.nodeId, body: text, className: 'plain' })
+  state.conversation.items.push({
+    kind: 'user',
+    role: 'user',
+    text,
+    label: '你',
+    eventType: 'local/prompt',
+    time: Date.now(),
+    pending: true,
+  })
+  renderConversation({ forceBottom: true })
   try {
     await api('/api/session/prompt', {
       nodeId: state.nodeId,
