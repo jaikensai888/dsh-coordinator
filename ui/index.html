@@ -121,8 +121,6 @@
   */
   .pane-head #chat-title, .pane-head .pill, .pill { text-transform: none; letter-spacing: normal; }
   .pane-head button { padding: 4px 9px; font-size: 12px; }
-  #sessionfilter-wrap { padding: 8px 10px 6px; flex: none; border-bottom: 1px solid var(--line-soft); }
-  #sessionfilter { font-size: 12px; padding: 5px 9px; }
   .list { flex: 1; overflow-y: auto; }
 
   .row {
@@ -266,13 +264,13 @@
   }
 
   header {
-    height: 62px;
+    height: 64px;
     padding: 0 20px;
-    gap: 12px;
+    gap: 14px;
     background: #081423;
     border-bottom-color: #1b3049;
   }
-  .brand-lockup { display: flex; align-items: baseline; gap: 9px; flex: none; }
+  .brand-lockup { display: flex; align-items: baseline; gap: 9px; flex: none; min-width: 225px; }
   header h1 { font-size: 18px; letter-spacing: -.25px; }
   header h1::before {
     width: 24px;
@@ -290,10 +288,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: min(380px, 28vw);
-    min-width: 210px;
+    width: min(320px, 26vw);
+    min-width: 190px;
     height: 38px;
-    margin-left: 18px;
+    margin-left: 0;
     padding: 0 11px;
     border: 1px solid #2b5b94;
     border-radius: 7px;
@@ -317,52 +315,10 @@
   }
   #commandbar:focus { box-shadow: none; }
 
-  #access-strip {
-    display: grid;
-    grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr) minmax(310px, 1.2fr);
-    gap: 8px;
-    padding: 10px 12px;
-    background: #0a1829;
-    border-bottom: 1px solid #1b3049;
-  }
-  .access-card {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    min-width: 0;
-    min-height: 70px;
-    padding: 12px 14px;
-    text-align: left;
-    background: #0e1d30;
-    border-color: #203a59;
-    border-radius: 8px;
-  }
-  .access-card:hover:not(:disabled) { background: #132943; border-color: #3774b8; }
-  .access-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .access-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; }
-  .access-card-copy { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .access-card .pill { margin-left: auto; }
-  .runtime-summary {
-    display: grid;
-    grid-template-columns: 1.2fr 1fr 1fr;
-    min-width: 0;
-    overflow: hidden;
-    border: 1px solid #203a59;
-    border-radius: 8px;
-    background: #0e1d30;
-  }
-  .summary-health, .summary-metric { min-width: 0; padding: 11px 13px; }
-  .summary-health + .summary-metric, .summary-metric + .summary-metric { border-left: 1px solid #203a59; }
-  .summary-health { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-content: center; }
-  .summary-health .dot { grid-row: span 2; align-self: center; }
-  .summary-health strong { color: var(--ok); font-size: 12px; white-space: nowrap; }
-  .summary-health strong.warn { color: var(--warn); }
-  .summary-health strong.bad { color: var(--bad); }
-  .summary-health strong.off { color: var(--dim); }
-  .summary-label { display: block; color: var(--dim); font-size: 10px; letter-spacing: .3px; white-space: nowrap; }
-  .summary-metric strong { display: inline-block; margin-right: 5px; font-size: 17px; line-height: 1.2; }
-  .summary-note { color: var(--ok); font-family: var(--mono); font-size: 10px; white-space: nowrap; }
+  .header-metrics { display: flex; align-items: center; gap: 16px; flex: none; color: var(--dim); }
+  .header-metric { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: 10px; }
+  .header-metric strong { color: var(--text); font-size: 14px; line-height: 1; }
+  .summary-note { color: var(--ok); font-family: var(--mono); font-size: 9px; }
 
   main {
     grid-template-columns: minmax(250px, 27%) minmax(390px, 1fr) minmax(340px, 31%);
@@ -389,9 +345,6 @@
   }
   .pane-head > span:first-child { font-weight: 650; }
   .pane-head button { padding: 6px 10px; }
-  #sessionfilter-wrap { padding: 10px 12px 8px; background: #0b1829; border-bottom-color: var(--line-soft); }
-  #sessionfilter { background: #081522; border-color: #24415f; padding: 7px 10px; }
-
   .node-context {
     padding: 12px 14px 11px;
     background: #0e1f34;
@@ -449,24 +402,151 @@
   #enrollbar { background: #132238; }
   #operatorbar .hint, #enrollbar .hint { color: var(--dim); }
 
+  /* -------------------------------------------------------- sidebar workbench */
+  main {
+    grid-template-columns: 304px minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    background: var(--bg);
+  }
+  #sidebar {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: #0b1726;
+    border-right: 1px solid var(--line);
+  }
+  #chat-pane {
+    min-width: 0;
+    min-height: 0;
+    border-right: none;
+    border-radius: 0;
+  }
+  main > section:last-child { background: #08121f; }
+  .sidebar-top {
+    flex: none;
+    padding: 12px 14px 8px;
+    background: #0a1829;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-title-row, .websocket-card-head, .websocket-address-row,
+  .sidebar-section-head, .session-panel-head, .session-heading-row {
+    display: flex;
+    align-items: center;
+  }
+  .sidebar-title-row { justify-content: space-between; gap: 10px; }
+  .sidebar-kicker {
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .75px;
+    text-transform: uppercase;
+  }
+  .sidebar-title { display: block; font-size: 17px; letter-spacing: -.2px; }
+  .websocket-card {
+    margin-top: 7px;
+    padding: 5px 7px;
+    border: 1px solid #24496f;
+    border-radius: 6px;
+    background: #0d2137;
+  }
+  .websocket-card-head { display: none; }
+  .websocket-label { flex: none; color: #cfe2ff; font-size: 10px; white-space: nowrap; }
+  .websocket-address-row { gap: 6px; margin-top: 0; }
+  #websocket-address {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: #a8c9f6;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .copy-button { flex: none; min-height: 22px; padding: 2px 6px; font-size: 10px; line-height: 14px; }
+  .websocket-hint { display: none; }
+  .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 18px; }
+  .sidebar-section-head { justify-content: space-between; gap: 8px; padding: 0 4px 7px; }
+  .sidebar-section-head > span:first-child { color: var(--text); font-size: 12px; font-weight: 650; }
+  .sidebar-section-head #new { padding: 3px 7px; font-size: 10px; }
+  #nodes, #sessions { padding: 0; }
+  #nodes { flex: none; overflow: visible; }
+  #nodes .row {
+    margin: 0;
+    padding: 5px 8px;
+    align-items: flex-start;
+    background: transparent;
+    border: 1px solid transparent;
+    border-left: 2px solid transparent;
+    border-radius: 5px;
+  }
+  #nodes .row + .row { margin-top: 3px; border-top: 0; }
+  #nodes .row:hover { background: #132943; border-color: #315b89; }
+  #nodes .row.active {
+    background: #162d49;
+    border-color: transparent;
+    border-left-color: #2f86ff;
+    box-shadow: none;
+  }
+  #nodes .row > .dot { margin-top: 5px; }
+  #nodes .row-title .name { font-size: 12.5px; }
+  #nodes .sub { margin: 2px 0 0 14px; color: var(--faint); font-size: 9.5px; }
+  .session-panel {
+    margin: 4px 0 3px 13px;
+    padding-left: 9px;
+    border-left: 1px solid #274968;
+  }
+  .session-panel #sessions { overflow: visible; }
+  #sessions .row {
+    margin: 2px 0 0;
+    padding: 6px 8px;
+    align-items: flex-start;
+    background: transparent;
+    border: 1px solid transparent;
+    border-left: 2px solid transparent;
+    border-radius: 6px;
+  }
+  #sessions .row + .row { border-top: 0; }
+  #sessions .row:hover { background: #10233b; border-color: #244c78; }
+  #sessions .row.active { background: #102c4e; border-color: #2f86ff; border-left-color: #2f86ff; }
+  #sessions .row-title .name { font-size: 12px; }
+  #sessions .sub { margin-top: 2px; font-size: 9.5px; }
+  #nodes .empty, #sessions .empty { padding: 20px 10px; }
+
   @media (max-width: 1100px) {
-    .command-field { width: 220px; min-width: 160px; margin-left: 8px; }
-    #access-strip { grid-template-columns: 1fr 1fr; }
-    .runtime-summary { grid-column: 1 / -1; }
-    main { grid-template-columns: 220px minmax(300px, 1fr) 300px; }
+    .command-field { width: 220px; min-width: 160px; }
+    .header-metrics { display: none; }
+    main { grid-template-columns: 280px minmax(0, 1fr); }
   }
   @media (max-width: 840px) {
     header { padding: 0 12px; }
     .command-field { display: none; }
     header button { padding: 7px 8px; }
-    #access-strip { grid-template-columns: 1fr 1fr; padding: 7px; }
-    .access-card { min-height: 64px; padding: 9px 10px; }
-    main { grid-template-columns: 205px 260px minmax(300px, 1fr); gap: 5px; padding: 5px; }
+    main { grid-template-columns: 252px minmax(0, 1fr); gap: 0; padding: 0; }
+  }
+  @media (max-width: 600px) {
+    header { height: 56px; gap: 6px; padding: 0 8px; }
+    .brand-lockup { min-width: 0; gap: 5px; }
+    header h1 { font-size: 14px; }
+    header h1::before { width: 20px; height: 20px; }
+    header .version { display: none; }
+    header > .pill { margin-left: 0; padding: 4px 6px; font-size: 9px; }
+    header button { padding: 5px 6px; font-size: 10px; }
+    header .spacer { display: none; }
+  }
+  @media (max-width: 480px) {
+    header { height: auto; min-height: 56px; flex-wrap: wrap; justify-content: flex-start; padding: 7px 8px; }
   }
   @media (max-width: 700px) {
-    #access-strip { grid-template-columns: 1fr; }
-    .runtime-summary { grid-column: auto; }
+    main { grid-template-columns: minmax(260px, 52%) minmax(0, 1fr); overflow: hidden; }
+    #sidebar { min-height: 0; max-height: none; }
+    main > section { min-height: 0; }
+  }
+  @media (max-width: 480px) {
     main { grid-template-columns: minmax(260px, 1fr); overflow-y: auto; }
+    #sidebar { min-height: 360px; max-height: 52vh; }
     main > section { min-height: 360px; }
   }
 </style>
@@ -483,44 +563,15 @@
     <span class="command-key">Ctrl+K</span>
     <input id="commandbar" aria-label="快速命令" placeholder="快速命令…" autocomplete="off">
   </div>
+  <div class="header-metrics" aria-label="运行统计">
+    <span class="header-metric"><span>节点</span><strong id="summary-nodes">0</strong><span class="summary-note" id="summary-ready">0 就绪</span></span>
+    <span class="header-metric"><strong id="summary-sessions">0</strong><span>活跃会话</span></span>
+  </div>
   <span class="spacer"></span>
   <button id="operatortoggle">运营端 token</button>
   <button id="enrolltoggle">节点接入 token</button>
   <button id="refresh">刷新节点</button>
 </header>
-
-<section id="access-strip" aria-label="访问凭证与运行状态">
-  <button class="access-card" id="operator-card" type="button">
-    <span class="access-card-head">
-      <span class="access-card-title">运营端 token</span>
-      <span class="pill off" id="operator-card-state">未设置</span>
-    </span>
-    <span class="access-card-copy">用于调用 Coordinator API（本地控制台）</span>
-  </button>
-  <button class="access-card" id="enroll-card" type="button">
-    <span class="access-card-head">
-      <span class="access-card-title">节点接入 token</span>
-      <span class="pill off" id="enroll-card-state">未设置</span>
-    </span>
-    <span class="access-card-copy">节点使用它连接并登记到 Coordinator</span>
-  </button>
-  <div class="runtime-summary" aria-label="运行状态">
-    <div class="summary-health">
-      <span class="dot offline" id="summary-health-dot"></span>
-      <span class="summary-label">Coordinator</span>
-      <strong id="summary-state">连接中</strong>
-    </div>
-    <div class="summary-metric">
-      <span class="summary-label">节点</span>
-      <strong id="summary-nodes">0</strong>
-      <span class="summary-note" id="summary-ready">0 就绪</span>
-    </div>
-    <div class="summary-metric">
-      <span class="summary-label">活跃会话</span>
-      <strong id="summary-sessions">0</strong>
-    </div>
-  </div>
-</section>
 
 <div id="tokenbar">
   <div class="sheet">
@@ -582,28 +633,31 @@
 </div>
 
 <main>
-  <section>
-    <div class="pane-head"><span>节点</span><span class="spacer"></span><span id="nodecount"></span></div>
-    <div class="list" id="nodes"><div class="empty">加载中…</div></div>
-  </section>
-  <section>
-    <div class="node-context" id="nodecontext">
-      <div class="context-kicker">当前节点</div>
-      <div class="context-title">
-        <strong id="selectednodename">未选择节点</strong>
-        <span class="pill off" id="selectednodestate">—</span>
+  <aside id="sidebar" aria-label="工作区导航">
+    <div class="sidebar-top">
+      <strong class="sidebar-title">工作区</strong>
+      <div class="websocket-card">
+        <div class="websocket-address-row">
+          <span class="websocket-label">节点 WS</span>
+          <code id="websocket-address">计算中…</code>
+          <button id="copy-websocket-address" class="copy-button" type="button">复制</button>
+        </div>
       </div>
-      <div class="context-meta" id="selectednodemeta">从左侧选择节点查看会话</div>
     </div>
-    <div class="pane-head">
-      <span>会话</span><span class="spacer"></span>
-      <span id="sessioncount"></span>
-      <button id="new" disabled>＋ 新建</button>
+
+    <div class="sidebar-scroll">
+      <div class="sidebar-section-head">
+        <span>节点</span>
+        <button id="new" disabled title="在所选节点上新建会话">＋ 新建</button>
+      </div>
+      <div class="list" id="nodes"><div class="empty">加载中…</div></div>
+
+      <div class="session-panel" id="session-panel" aria-label="当前节点会话">
+        <div class="list" id="sessions"><div class="empty">先选一个节点</div></div>
+      </div>
     </div>
-    <div id="sessionfilter-wrap"><input id="sessionfilter" placeholder="按名称 / 目录筛选…" autocomplete="off"></div>
-    <div class="list" id="sessions"><div class="empty">先选一个节点</div></div>
-  </section>
-  <section>
+  </aside>
+  <section id="chat-pane">
     <div class="pane-head">
       <span id="chat-title">消息</span><span class="spacer"></span>
       <span class="pill" id="chat-state">—</span>
@@ -630,7 +684,6 @@ const state = {
   nodes: [],
   nodeId: null,
   sessions: [],
-  sessionFilter: '',
   sessionId: null,
   follow: null,       // AbortController for the open follow stream
   entries: [],        // rendered frames, so a reconnect can replay them
@@ -642,6 +695,52 @@ const el = (tag, className, text) => {
   if (className) node.className = className
   if (text !== undefined) node.textContent = text
   return node
+}
+
+function fallbackWebSocketAddress () {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return protocol + '//' + window.location.host + '/node'
+}
+
+function setWebSocketAddress (address) {
+  const target = $('websocket-address')
+  if (!target || typeof address !== 'string' || address.trim() === '') return
+  target.textContent = address
+  target.title = address
+}
+
+async function loadWebSocketAddress () {
+  setWebSocketAddress(fallbackWebSocketAddress())
+  try {
+    const stats = await api('/api/stats')
+    if (stats && typeof stats.url === 'string') setWebSocketAddress(stats.url)
+  } catch {
+    // The fallback is still correct for the default /node path. A failed stats
+    // call is already surfaced by the existing API/token status UI.
+  }
+}
+
+async function copyWebSocketAddress () {
+  const address = $('websocket-address')?.textContent?.trim() || fallbackWebSocketAddress()
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(address)
+    } else {
+      const helper = el('textarea')
+      helper.value = address
+      helper.setAttribute('readonly', '')
+      helper.style.position = 'fixed'
+      helper.style.opacity = '0'
+      document.body.append(helper)
+      helper.select()
+      const copied = document.execCommand('copy')
+      helper.remove()
+      if (!copied) throw new Error('clipboard unavailable')
+    }
+    note('节点 WebSocket 地址已复制')
+  } catch {
+    note('复制失败，请手动复制节点 WebSocket 地址。', 'err')
+  }
 }
 
 function setPill (id, text, tone) {
@@ -659,37 +758,13 @@ function nodeStatusLabel (node) {
   return node.state || '未知'
 }
 
-function renderSummary (serviceOverride) {
+function renderSummary () {
   const total = state.nodes.length
   const ready = state.nodes.filter(node => node.state === 'ready' && !node.revoked).length
   const activeSessions = state.sessions.filter(session => session && session.running).length
-  const stateText = serviceOverride || (total === 0 ? '等待节点' : ready > 0 ? '正常运行' : '无可用节点')
-  const tone = serviceOverride ? 'bad' : ready > 0 ? 'ok' : total > 0 ? 'warn' : 'off'
-
-  if ($('summary-state')) {
-    $('summary-state').textContent = stateText
-    $('summary-state').className = 'summary-state ' + tone
-  }
-  if ($('summary-health-dot')) {
-    $('summary-health-dot').className = 'dot ' + (tone === 'ok' ? 'ready' : tone === 'bad' ? 'revoked' : 'offline')
-  }
   if ($('summary-nodes')) $('summary-nodes').textContent = String(total)
   if ($('summary-ready')) $('summary-ready').textContent = ready + ' 就绪'
   if ($('summary-sessions')) $('summary-sessions').textContent = String(activeSessions)
-}
-
-function renderNodeContext () {
-  const node = state.nodes.find(entry => entry.nodeId === state.nodeId)
-  if (!node) {
-    $('selectednodename').textContent = '未选择节点'
-    setPill('selectednodestate', '—', 'off')
-    $('selectednodemeta').textContent = '从左侧选择节点查看会话'
-    return
-  }
-
-  $('selectednodename').textContent = node.nodeName || node.nodeId
-  setPill('selectednodestate', nodeStatusLabel(node), node.revoked ? 'off' : node.state === 'ready' ? 'ok' : 'off')
-  $('selectednodemeta').textContent = `${node.nodeId} · ${node.state} · ${node.capabilityCount || 0} 能力`
 }
 
 function canOperateNode () {
@@ -977,17 +1052,22 @@ function renderAssistantStream (inner) {
 
 function renderNodes () {
   const list = $('nodes')
+  const sessionPanel = $('session-panel')
   list.replaceChildren()
-  $('nodecount').textContent = state.nodes.length ? String(state.nodes.length) : ''
-  renderNodeContext()
   renderSummary()
   syncNodeActions()
 
   if (state.nodes.length === 0) {
     list.append(el('div', 'empty', '还没有节点连上来'))
+    list.append(sessionPanel)
     return
   }
-  for (const node of state.nodes) {
+  const selected = state.nodes.find(node => node.nodeId === state.nodeId)
+  const orderedNodes = selected
+    ? [selected, ...state.nodes.filter(node => node.nodeId !== selected.nodeId)]
+    : state.nodes
+
+  for (const node of orderedNodes) {
     const statusClass = node.revoked ? 'revoked' : node.state
     const row = el('div', 'row node-row' + (node.nodeId === state.nodeId ? ' active' : ''))
     const dot = el('span', 'dot ' + (node.revoked ? 'revoked' : node.state))
@@ -1002,7 +1082,9 @@ function renderNodes () {
     row.title = node.nodeId
     row.onclick = () => selectNode(node.nodeId)
     list.append(row)
+    if (node.nodeId === state.nodeId) list.append(sessionPanel)
   }
+  if (!sessionPanel.parentElement) list.append(sessionPanel)
 }
 
 async function refreshNodes () {
@@ -1016,10 +1098,11 @@ async function refreshNodes () {
     if (state.nodeId && !state.nodes.some(n => n.nodeId === state.nodeId)) selectNode(null)
   } catch (error) {
     $('stat').textContent = '未连接'
-    renderSummary('API 未连接')
+    renderSummary()
     const list = $('nodes')
     list.replaceChildren()
     list.append(el('div', 'empty', String(error.message || error)))
+    list.append($('session-panel'))
   }
 }
 
@@ -1030,7 +1113,6 @@ function selectNode (nodeId) {
   state.sessions = []
   closeFollow()
   renderNodes()
-  renderNodeContext()
   renderSummary()
   clearLog(nodeId ? '正在加载会话…' : '选一个会话开始')
   $('chat-title').textContent = '消息'
@@ -1201,32 +1283,12 @@ function renderSessions () {
     return
   }
 
-  const needle = state.sessionFilter.trim().toLowerCase()
   // Repeated titles get a short id appended; see `sessionLabels`.
   const labels = sessionLabels(state.sessions)
   const labelFor = session => labels.get(session) ?? sessionLabel(session)
-
-  const shown = needle === ''
-    ? state.sessions
-    : state.sessions.filter(session =>
-      labelFor(session).toLowerCase().includes(needle) ||
-      String(session.cwd ?? '').toLowerCase().includes(needle) ||
-      sessionOf(session).toLowerCase().includes(needle))
-
-  if (shown.length === 0) {
-    list.append(el('div', 'empty', `没有匹配「${state.sessionFilter}」的会话`))
-    $('sessioncount').textContent = `0/${state.sessions.length}`
-    return
-  }
-  $('sessioncount').textContent = needle === ''
-    ? String(state.sessions.length)
-    : `${shown.length}/${state.sessions.length}`
-
   for (const session of state.sessions) {
-    if (!shown.includes(session)) continue
     const id = sessionOf(session)
     const row = el('div', 'row session-row' + (id === state.sessionId ? ' active' : ''))
-    row.append(el('span', 'dot ' + (session.running ? 'ready' : 'offline')))
 
     const box = el('div', 'row-copy')
     const title = el('div', 'row-title')
@@ -1446,12 +1508,10 @@ async function loadEnrollment () {
     const label = value.open ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
     pill.textContent = label
     pill.className = 'pill ' + (value.open ? 'ok' : 'off')
-    setPill('enroll-card-state', label, value.open ? 'ok' : 'off')
     pill.title = value.stateFile ? '保存在 ' + value.stateFile : '没有配置状态文件，重启会丢失'
   } catch (error) {
     pill.textContent = '未知'
     pill.className = 'pill off'
-    setPill('enroll-card-state', '未知', 'off')
     pill.title = String(error.message || error)
   }
 }
@@ -1486,7 +1546,6 @@ async function loadOperatorToken () {
     const label = configured ? (value.persisted ? '已设置' : '已设置 · 重启会丢') : '未设置'
     pill.textContent = label
     pill.className = 'pill ' + (configured ? 'ok' : 'off')
-    setPill('operator-card-state', label, configured ? 'ok' : 'off')
     $('operatorhint').textContent = configured
       ? '更换 token 后，当前页面会立即改用新值；页面不会回显 token。'
       : '首次使用请设置一个 token；设置后，调用 Coordinator API 必须携带它。'
@@ -1494,7 +1553,6 @@ async function loadOperatorToken () {
   } catch (error) {
     pill.textContent = '未知'
     pill.className = 'pill off'
-    setPill('operator-card-state', '未知', 'off')
     pill.title = String(error.message || error)
   }
 }
@@ -1525,9 +1583,8 @@ async function setOperatorToken () {
 
 // ------------------------------------------------------------------ wiring
 
-$('operator-card').onclick = () => { $('operatortoggle').click() }
-$('enroll-card').onclick = () => { $('enrolltoggle').click() }
 $('refresh').onclick = () => { void refreshNodes() }
+$('copy-websocket-address').onclick = () => { void copyWebSocketAddress() }
 $('new').onclick = () => { void createSession() }
 $('newinsession').onclick = () => { void createSession() }
 $('reload').onclick = () => { if (state.sessionId) void openFollow(state.sessionId) }
@@ -1560,10 +1617,6 @@ $('enrollsave').onclick = () => {
   void setEnrollment(secret)
 }
 $('enrollclear').onclick = () => { void setEnrollment(null) }
-$('sessionfilter').addEventListener('input', event => {
-  state.sessionFilter = event.target.value
-  renderSessions()
-})
 $('enrollinput').addEventListener('keydown', event => {
   if (event.key === 'Enter') {
     event.preventDefault()
@@ -1631,9 +1684,9 @@ function runQuickCommand (value) {
     $('enrolltoggle').click()
     $('enrollinput').focus()
   } else if (command.includes('会话') || command.includes('session')) {
-    $('sessionfilter').focus()
+    note('会话列表位于所选节点下方。', 'sys')
   } else {
-    note('可用命令：刷新节点、运营端 token、节点接入 token、筛选会话', 'sys')
+    note('可用命令：刷新节点、运营端 token、节点接入 token、查看会话位置', 'sys')
   }
 }
 
@@ -1653,6 +1706,7 @@ document.addEventListener('keydown', event => {
 void loadOperatorToken()
 void refreshNodes()
 void loadEnrollment()
+void loadWebSocketAddress()
 setInterval(() => { void refreshNodes() }, 5000)
 </script>
 </body>

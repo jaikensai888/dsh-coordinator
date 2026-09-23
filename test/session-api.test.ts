@@ -432,6 +432,23 @@ describe('the session routes over HTTP', () => {
     expect(slashed.status).toBe(200)
   })
 
+  it('serves a sidebar workspace with a copyable node WebSocket address', async () => {
+    const created = await fixture()
+
+    const html = await (await fetch(`http://127.0.0.1:${created.port}/ui`)).text()
+
+    expect(html).toContain('id="sidebar"')
+    expect(html).toContain('id="websocket-address"')
+    expect(html).toContain('id="copy-websocket-address"')
+    expect(html).toContain('navigator.clipboard.writeText')
+    expect(html).toContain("window.location.protocol === 'https:' ? 'wss:' : 'ws:'")
+    expect(html).toContain('id="nodes"')
+    expect(html).toContain('id="sessions"')
+    expect(html).toContain('id="session-panel"')
+    expect(html).toContain('id="new"')
+    expect(html).not.toContain('id="sessionfilter"')
+  })
+
   it('does not serve the UI when it is turned off or sessions are disabled', async () => {
     const noUi = await fixture({ enableUi: false })
     expect((await fetch(`http://127.0.0.1:${noUi.port}/ui`)).status).toBe(404)
