@@ -476,6 +476,7 @@
   #nodes .row {
     margin: 0;
     padding: 5px 8px;
+    gap: 6px;
     align-items: flex-start;
     background: transparent;
     border: 1px solid transparent;
@@ -490,6 +491,18 @@
     border-left-color: #2f86ff;
     box-shadow: none;
   }
+  .node-disclosure {
+    width: 6px;
+    height: 6px;
+    margin: 5px 1px 0;
+    border-right: 1.5px solid #7188a4;
+    border-bottom: 1.5px solid #7188a4;
+    flex: none;
+    transform: rotate(-45deg);
+    transition: transform .12s ease;
+  }
+  #nodes .row[aria-expanded="true"] .node-disclosure { transform: rotate(45deg); }
+  #nodes .row:focus-visible { outline: 1px solid #4b9bff; outline-offset: 1px; }
   #nodes .row > .dot { margin-top: 5px; }
   #nodes .row-title .name { font-size: 12.5px; }
   #nodes .sub { margin: 2px 0 0 14px; color: var(--faint); font-size: 9.5px; }
@@ -683,6 +696,7 @@ const state = {
   token: readStoredToken(),
   nodes: [],
   nodeId: null,
+  sessionsExpanded: false,
   sessions: [],
   sessionId: null,
   follow: null,       // AbortController for the open follow stream
@@ -1058,6 +1072,7 @@ function renderNodes () {
   syncNodeActions()
 
   if (state.nodes.length === 0) {
+    sessionPanel.hidden = false
     list.append(el('div', 'empty', '还没有节点连上来'))
     list.append(sessionPanel)
     return
@@ -1070,6 +1085,15 @@ function renderNodes () {
   for (const node of orderedNodes) {
     const statusClass = node.revoked ? 'revoked' : node.state
     const row = el('div', 'row node-row' + (node.nodeId === state.nodeId ? ' active' : ''))
+    const isSelected = node.nodeId === state.nodeId
+    const isExpanded = isSelected && state.sessionsExpanded
+    row.setAttribute('role', 'button')
+    row.setAttribute('tabindex', '0')
+    row.setAttribute('aria-expanded', String(isExpanded))
+    row.setAttribute('aria-controls', 'session-panel')
+    row.setAttribute('aria-label', `${node.nodeName || node.nodeId}，${nodeStatusLabel(node)}`)
+    row.dataset.nodeId = node.nodeId
+    row.append(el('span', 'node-disclosure'))
     const dot = el('span', 'dot ' + (node.revoked ? 'revoked' : node.state))
     row.append(dot)
     const box = el('div', 'row-copy')
@@ -1081,10 +1105,21 @@ function renderNodes () {
     row.append(box)
     row.title = node.nodeId
     row.onclick = () => selectNode(node.nodeId)
+    row.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      selectNode(node.nodeId)
+    }
     list.append(row)
-    if (node.nodeId === state.nodeId) list.append(sessionPanel)
+    if (isSelected) {
+      sessionPanel.hidden = !isExpanded
+      list.append(sessionPanel)
+    }
   }
-  if (!sessionPanel.parentElement) list.append(sessionPanel)
+  if (!sessionPanel.parentElement) {
+    sessionPanel.hidden = false
+    list.append(sessionPanel)
+  }
 }
 
 async function refreshNodes () {
@@ -1107,12 +1142,20 @@ async function refreshNodes () {
 }
 
 function selectNode (nodeId) {
-  if (state.nodeId === nodeId) return
+  if (state.nodeId === nodeId) {
+    if (!nodeId) return
+    state.sessionsExpanded = !state.sessionsExpanded
+    renderNodes()
+    focusNodeRow(nodeId)
+    return
+  }
   state.nodeId = nodeId
+  state.sessionsExpanded = Boolean(nodeId)
   state.sessionId = null
   state.sessions = []
   closeFollow()
   renderNodes()
+  if (nodeId) focusNodeRow(nodeId)
   renderSummary()
   clearLog(nodeId ? '正在加载会话…' : '选一个会话开始')
   $('chat-title').textContent = '消息'
@@ -1123,6 +1166,12 @@ function selectNode (nodeId) {
   $('send').disabled = true
   if (nodeId) void loadSessions()
   else renderSessions()
+}
+
+function focusNodeRow (nodeId) {
+  const row = [...$('nodes').querySelectorAll('.node-row')]
+    .find(candidate => candidate.dataset.nodeId === nodeId)
+  row?.focus({ preventScroll: true })
 }
 
 // ------------------------------------------------------------------ sessions
