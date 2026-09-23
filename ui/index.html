@@ -748,6 +748,120 @@
   .process-item:first-child { border-top: 0; }
   .process-item .process-type { flex: none; color: #9ab4d2; font-family: var(--mono); font-size: 10px; }
   .process-item .process-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* dsh-harness-style tool lifecycle row: quiet, inline, and expandable. */
+  .conversation-tool {
+    min-width: 0;
+    margin: 5px 0 8px 35px;
+    color: #aab6c8;
+  }
+  .conversation-tool-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 33px;
+    margin: 0;
+    padding: 0 0 8px;
+    border: 0;
+    border-bottom: 1px solid rgba(54, 70, 91, .68);
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    cursor: default;
+    text-align: left;
+  }
+  button.conversation-tool-row { cursor: pointer; }
+  .conversation-tool-row:hover { color: #dbe6f5; background: transparent; border-color: #50647e; }
+  .tool-leading {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: #7f93ad;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1;
+  }
+  .conversation-tool[data-state='ok'] .tool-leading { color: var(--ok); }
+  .conversation-tool[data-state='error'] .tool-leading { color: var(--bad); }
+  .conversation-tool[data-state='running'] .tool-leading { color: var(--accent); }
+  .tool-title {
+    flex: none;
+    margin-left: 6px;
+    color: #c9d5e5;
+    font-size: 13px;
+    line-height: 24px;
+  }
+  .tool-separator {
+    flex: none;
+    width: 2px;
+    height: 2px;
+    margin: 0 8px;
+    border-radius: 50%;
+    background: #687a92;
+  }
+  .tool-summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: #8f9daf;
+    font-size: 13px;
+    line-height: 24px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .conversation-tool[data-state='error'] .tool-summary { color: #f08a83; }
+  .tool-chevron {
+    flex: none;
+    width: 16px;
+    margin-left: 6px;
+    color: #71849e;
+    font-size: 16px;
+    line-height: 1;
+    transform: rotate(-90deg);
+    transition: transform .1s ease;
+  }
+  .conversation-tool[data-open] .tool-chevron { transform: rotate(0deg); }
+  .conversation-tool[data-state='running'] .tool-leading { animation: tool-pulse 1.35s ease-in-out infinite; }
+  @keyframes tool-pulse { 50% { opacity: .42; } }
+  .tool-body { display: flex; flex-direction: column; }
+  .tool-io-card {
+    display: flex;
+    flex-direction: column;
+    max-width: calc(100% - 4px);
+    margin: 4px 0 4px 4px;
+    overflow: hidden;
+    border: 1px solid rgba(53, 70, 91, .72);
+    border-radius: 10px;
+    background: #0d1826;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .tool-io-section {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 13px;
+    align-items: start;
+    max-height: 170px;
+    overflow: auto;
+    padding: 11px 13px;
+  }
+  .tool-io-section + .tool-io-section { border-top: 1px solid rgba(53, 70, 91, .64); }
+  .tool-io-label { color: #65758a; }
+  .tool-io-text {
+    min-width: 0;
+    color: #b8c7da;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .tool-io-text.error { color: #f08a83; }
+  @media (prefers-reduced-motion: reduce) {
+    .tool-chevron { transition: none; }
+    .conversation-tool[data-state='running'] .tool-leading { animation: none; }
+  }
   .local-notice {
     margin: 8px auto;
     max-width: 680px;
@@ -1168,8 +1282,12 @@ function conversationContentText (content) {
   for (const part of content) {
     if (!part || typeof part !== 'object') continue
     if (part.type === 'text' && typeof part.text === 'string') parts.push(part.text)
+    else if (part.type === 'reasoning') parts.push('[思考]')
     else if (part.type === 'image') parts.push('[图片]')
     else if (part.type === 'file') parts.push('[文件]')
+    // Tool blocks have their own compact row. Keeping them out of message
+    // bubbles is the same boundary used by dsh-harness's AssistantMarkdown.
+    else if (part.type === 'tool-call' || part.type === 'tool-result') continue
     else if (typeof part.type === 'string') parts.push('[' + part.type + ']')
   }
   return parts.join('')
@@ -1229,28 +1347,113 @@ function conversationCompactData (data) {
   try { return JSON.stringify(data, null, 2) } catch { return String(data) }
 }
 
-function conversationEntryFromEvent (event) {
-  if (!event || typeof event !== 'object') return null
+function conversationToolCallEntry (event, data, call) {
+  const callId = call?.id ?? data?.callId
+  if (callId === undefined || callId === null || String(callId) === '') return null
+  const name = typeof (call?.name ?? data?.name) === 'string' ? String(call?.name ?? data?.name) : ''
+  const argumentsValue = call?.arguments ?? data?.arguments
+  const argsRaw = typeof argumentsValue === 'string'
+    ? argumentsValue
+    : argumentsValue === undefined ? '' : (() => {
+        try { return JSON.stringify(argumentsValue) } catch { return String(argumentsValue) }
+      })()
+  return {
+    kind: 'tool',
+    phase: 'call',
+    callId: String(callId),
+    name,
+    argsRaw,
+    eventType: event.type,
+    seq: event.seq,
+    time: event.time,
+    turn: data?.turn,
+    step: data?.step,
+  }
+}
+
+function conversationToolResultEntry (event, data, message) {
+  const content = Array.isArray(message?.content) ? message.content : Array.isArray(data?.content) ? data.content : []
+  const resultBlock = content.find(part => part && typeof part === 'object' && part.type === 'tool-result')
+  const source = message?.source && typeof message.source === 'object' ? message.source : data?.source
+  const callId = resultBlock?.toolCallId ?? source?.callId ?? data?.callId
+  if (callId === undefined || callId === null || String(callId) === '') return null
+  const outputContent = Array.isArray(resultBlock?.content)
+    ? resultBlock.content
+    : resultBlock === undefined ? content : []
+  let output = conversationContentText(outputContent)
+  const error = data?.error
+  if (output === '' && error && typeof error === 'object') {
+    const errorName = typeof error.name === 'string' ? error.name : '工具错误'
+    const errorCode = typeof error.code === 'string' ? ': ' + error.code : ''
+    const errorMessage = typeof error.message === 'string' ? ' · ' + error.message : ''
+    output = errorName + errorCode + errorMessage
+  }
+  return {
+    kind: 'tool',
+    phase: 'result',
+    callId: String(callId),
+    output,
+    isError: event.type === 'tool/error' || resultBlock?.isError === true || data?.isError === true,
+    error,
+    eventType: event.type,
+    seq: event.seq,
+    time: event.time,
+    turn: data?.turn,
+    step: data?.step,
+  }
+}
+
+function conversationEntriesFromEvent (event) {
+  if (!event || typeof event !== 'object') return []
   const type = typeof event.type === 'string' ? event.type : 'event'
   const data = event.data
   const message = conversationMessageOf(data)
+
+  // Real DSH session events own the tool lifecycle outside the assistant/user
+  // message. Handle them before the generic message path: tool-result messages
+  // deliberately have role "user" on the wire, but they are not user bubbles.
+  if (type === 'tool/call') {
+    const call = conversationToolCallEntry(event, data, data)
+    return call ? [call] : []
+  }
+  if (type === 'tool/result' || type === 'tool/error') {
+    const result = conversationToolResultEntry(event, data, message)
+    return result ? [result] : []
+  }
+
   if (message) {
     const role = message.role || type.split('/')[0]
     const text = conversationContentText(message.content)
     if (role === 'user' || role === 'assistant') {
-      return {
-        kind: role,
-        role,
-        text,
-        label: role === 'user' ? '你' : 'AI',
-        eventType: type,
-        seq: event.seq,
-        time: event.time,
-        turn: data?.turn,
-        step: data?.step,
+      const resultBlocks = Array.isArray(message.content)
+        ? message.content.filter(part => part && typeof part === 'object' && part.type === 'tool-result')
+        : []
+      const toolCallBlocks = Array.isArray(message.content)
+        ? message.content.filter(part => part && typeof part === 'object' && part.type === 'tool-call')
+        : []
+      const entries = []
+      if (text !== '' || (resultBlocks.length === 0 && toolCallBlocks.length === 0)) {
+        entries.push({
+          kind: role,
+          role,
+          text,
+          label: role === 'user' ? '你' : 'AI',
+          eventType: type,
+          seq: event.seq,
+          time: event.time,
+          turn: data?.turn,
+          step: data?.step,
+        })
       }
+      // Some older nodes expose the result as user/message instead of the
+      // dedicated tool/result event. Preserve that history as a tool row too.
+      for (const block of resultBlocks) {
+        const result = conversationToolResultEntry(event, data, { content: [block], source: message.source })
+        if (result) entries.push(result)
+      }
+      return entries
     }
-    return {
+    return [{
       kind: 'process',
       role: 'system',
       text,
@@ -1260,14 +1463,14 @@ function conversationEntryFromEvent (event) {
       time: event.time,
       turn: data?.turn,
       step: data?.step,
-    }
+    }]
   }
 
   // The bundled fake node predates the real DSH `*/message` payload shape. Keep
   // its smoke-test events readable without weakening the real-shape path above.
   const legacyRole = type === 'user-message' ? 'user' : type === 'assistant-message' ? 'assistant' : null
   if (legacyRole) {
-    return {
+    return [{
       kind: legacyRole,
       role: legacyRole,
       text: typeof data?.text === 'string' ? data.text : conversationCompactData(data),
@@ -1275,10 +1478,10 @@ function conversationEntryFromEvent (event) {
       eventType: type,
       seq: event.seq,
       time: event.time,
-    }
+    }]
   }
 
-  return {
+  return [{
     kind: 'process',
     role: 'system',
     text: conversationCompactData(data),
@@ -1288,18 +1491,18 @@ function conversationEntryFromEvent (event) {
     time: event.time,
     turn: data?.turn,
     step: data?.step,
-  }
+  }]
 }
 
-function conversationEntryFromRecord (record) {
-  if (!record || typeof record !== 'object' || !record.event) return null
+function conversationEntriesFromRecord (record) {
+  if (!record || typeof record !== 'object' || !record.event) return []
   const event = record.event
-  if (record.type !== 'chunks') return conversationEntryFromEvent(event)
+  if (record.type !== 'chunks') return conversationEntriesFromEvent(event)
 
   const data = event.data || {}
   if (event.type === 'chunkrow/text-chunks' || event.type === 'chunkrow/reasoning-chunks') {
     const text = Array.isArray(data.texts) ? data.texts.join('') : ''
-    return {
+    return [{
       kind: 'assistant',
       role: 'assistant',
       text,
@@ -1308,24 +1511,135 @@ function conversationEntryFromRecord (record) {
       seq: event.seq,
       time: event.time,
       chunk: true,
-    }
+    }]
   }
   if (event.type === 'chunkrow/tool-call-chunks') {
     const args = Array.isArray(data.args) ? data.args : []
-    let text
-    try { text = args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('') } catch { text = String(args) }
-    return {
-      kind: 'process',
-      role: 'system',
-      text,
-      label: '工具参数',
+    let argsRaw
+    try { argsRaw = args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('') } catch { argsRaw = String(args) }
+    return [{
+      kind: 'tool',
+      phase: 'call',
+      callId: data.id === undefined ? '' : String(data.id),
+      name: typeof data.name === 'string' ? data.name : '',
+      argsRaw,
       eventType: event.type,
       seq: event.seq,
       time: event.time,
+      turn: data.turn,
+      step: data.step,
       chunk: true,
+    }]
+  }
+  return conversationEntriesFromEvent(event)
+}
+
+function conversationFirstLine (text) {
+  const value = String(text || '')
+  const newline = value.indexOf('\n')
+  return newline === -1 ? value : value.slice(0, newline)
+}
+
+function conversationToolTitle (name) {
+  const titles = {
+    bash: 'Bash',
+    pwsh: 'Pwsh',
+    read: '读取',
+    read_image: '读取图片',
+    write: '写入',
+    edit: '编辑',
+    run_code: '代码',
+    web_search: '搜索',
+    web_fetch: '读取',
+    grep: 'Grep',
+    glob: 'Glob',
+  }
+  return titles[name] || '工具调用'
+}
+
+function conversationToolSummary (name, argsRaw, callId) {
+  if (!argsRaw) return callId || '等待参数'
+  let parsed
+  try { parsed = JSON.parse(argsRaw) } catch { parsed = null }
+  let summary = ''
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const keysByTool = {
+      bash: ['description', 'command'],
+      pwsh: ['description', 'command'],
+      read: ['path', 'file_path', 'url'],
+      read_image: ['path', 'file_path'],
+      write: ['path', 'file_path'],
+      edit: ['path', 'file_path'],
+      run_code: ['description'],
+      web_search: ['query', 'pattern', 'url'],
+      web_fetch: ['url', 'path'],
+      grep: ['pattern', 'query'],
+      glob: ['pattern', 'path'],
+    }
+    const keys = keysByTool[name] || []
+    for (const key of keys) {
+      if (typeof parsed[key] === 'string' && parsed[key] !== '') { summary = parsed[key]; break }
+    }
+    if (!summary) {
+      for (const value of Object.values(parsed)) {
+        if (typeof value === 'string' && value !== '') { summary = value; break }
+      }
     }
   }
-  return conversationEntryFromEvent(event)
+  if (!summary) summary = argsRaw
+  summary = conversationFirstLine(summary)
+  return conversationToolTitle(name) === '工具调用' && name !== ''
+    ? name + ' · ' + summary
+    : summary
+}
+
+/** Pair tool/call and tool/result entries without changing the backend stream. */
+function conversationToolGroups (items) {
+  const byCallId = new Map()
+  for (let index = 0; index < (Array.isArray(items) ? items.length : 0); index += 1) {
+    const item = items[index]
+    if (!item || item.kind !== 'tool') continue
+    const callId = item.callId || 'unknown-' + index
+    let group = byCallId.get(callId)
+    if (!group) {
+      group = {
+        firstIndex: index,
+        callId,
+        name: '',
+        argsRaw: '',
+        output: '',
+        hasResult: false,
+        isError: false,
+        turn: item.turn,
+        step: item.step,
+      }
+      byCallId.set(callId, group)
+    }
+    if (item.phase === 'call') {
+      if (item.name) group.name = item.name
+      if (item.argsRaw) group.argsRaw = item.argsRaw
+    } else if (item.phase === 'result') {
+      group.hasResult = true
+      group.output = typeof item.output === 'string' ? item.output : ''
+      group.isError = item.isError === true
+    }
+    if (group.turn === undefined && item.turn !== undefined) group.turn = item.turn
+    if (group.step === undefined && item.step !== undefined) group.step = item.step
+  }
+  return [...byCallId.values()]
+    .sort((left, right) => left.firstIndex - right.firstIndex)
+    .map(group => {
+      const output = group.output || ''
+      const state = group.hasResult ? group.isError ? 'error' : 'ok' : 'running'
+      return {
+        ...group,
+        title: conversationToolTitle(group.name),
+        summary: state === 'error' && output !== '' ? conversationFirstLine(output) : conversationToolSummary(group.name, group.argsRaw, group.callId),
+        output,
+        state,
+        errorSummary: state === 'error' && output !== '' ? conversationFirstLine(output) : '',
+      }
+    })
 }
 
 function conversationMatchesLive (entry, live) {
@@ -1339,15 +1653,17 @@ function appendConversationRecord (state, record, prepend = false) {
   const key = (record.type || 'event') + ':' + conversationEventKey(event)
   if (state.seen.has(key)) return
   state.seen.add(key)
-  const entry = conversationEntryFromRecord(record)
-  if (!entry) return
-  if (entry.kind === 'user') {
-    const pendingIndex = state.items.findIndex(item => item.pending === true && item.text === entry.text)
-    if (pendingIndex >= 0) state.items.splice(pendingIndex, 1)
+  const entries = conversationEntriesFromRecord(record)
+  if (entries.length === 0) return
+  for (const entry of entries) {
+    if (entry.kind === 'user') {
+      const pendingIndex = state.items.findIndex(item => item.pending === true && item.text === entry.text)
+      if (pendingIndex >= 0) state.items.splice(pendingIndex, 1)
+    }
+    if (conversationMatchesLive(entry, state.liveAssistant)) state.liveAssistant = null
+    if (prepend) state.items.unshift(entry)
+    else state.items.push(entry)
   }
-  if (conversationMatchesLive(entry, state.liveAssistant)) state.liveAssistant = null
-  if (prepend) state.items.unshift(entry)
-  else state.items.push(entry)
 }
 
 function prependConversationRecords (state, records, hasMore) {
@@ -1509,6 +1825,64 @@ function renderConversationMessage (item, live = false) {
   return row
 }
 
+function conversationToolInputText (argsRaw) {
+  if (!argsRaw) return ''
+  try { return JSON.stringify(JSON.parse(argsRaw), null, 2) } catch { return argsRaw }
+}
+
+function renderConversationTool (group) {
+  const row = el('div', 'conversation-tool')
+  row.dataset.state = group.state
+  row.dataset.callId = group.callId
+  const expandable = group.argsRaw !== '' || group.output !== ''
+  const header = el(expandable ? 'button' : 'div', 'conversation-tool-row')
+  if (expandable) {
+    header.type = 'button'
+    header.setAttribute('aria-expanded', 'false')
+  }
+  const leading = el('span', 'tool-leading', group.state === 'error' ? '!' : group.state === 'running' ? '·' : '✓')
+  leading.setAttribute('aria-hidden', 'true')
+  header.append(leading, el('span', 'tool-title', group.title))
+  if (group.summary !== '') {
+    const separator = el('span', 'tool-separator')
+    separator.setAttribute('aria-hidden', 'true')
+    header.append(separator, el('span', 'tool-summary', group.summary))
+  }
+  if (expandable) {
+    const chevron = el('span', 'tool-chevron', '⌄')
+    chevron.setAttribute('aria-hidden', 'true')
+    header.append(chevron)
+  }
+  row.append(header)
+
+  if (expandable) {
+    const body = el('div', 'tool-body')
+    body.hidden = true
+    const card = el('div', 'tool-io-card')
+    if (group.argsRaw !== '') {
+      const input = el('div', 'tool-io-section')
+      input.append(el('span', 'tool-io-label', '输入'))
+      input.append(el('code', 'tool-io-text', conversationToolInputText(group.argsRaw)))
+      card.append(input)
+    }
+    if (group.output !== '') {
+      const output = el('div', 'tool-io-section')
+      output.append(el('span', 'tool-io-label', '输出'))
+      output.append(el('code', 'tool-io-text' + (group.state === 'error' ? ' error' : ''), group.output))
+      card.append(output)
+    }
+    body.append(card)
+    row.append(body)
+    header.onclick = () => {
+      const open = !body.hidden
+      body.hidden = open
+      row.toggleAttribute('data-open', !open)
+      header.setAttribute('aria-expanded', String(!open))
+    }
+  }
+  return row
+}
+
 function renderConversationProcess (items) {
   const row = el('div', 'message-row process')
   const details = el('details')
@@ -1590,12 +1964,23 @@ function renderConversation ({ forceBottom = false, preserveTop = false } = {}) 
     root.append(loader)
   }
 
+  const toolGroups = conversationToolGroups(window.items)
+  const toolAt = new Map(toolGroups.map(group => [group.firstIndex, group]))
   let processItems = []
   const flushProcess = () => {
     if (processItems.length > 0) root.append(renderConversationProcess(processItems))
     processItems = []
   }
-  for (const item of window.items) {
+  for (let index = 0; index < window.items.length; index += 1) {
+    const item = window.items[index]
+    if (item.kind === 'tool') {
+      const group = toolAt.get(index)
+      if (group) {
+        flushProcess()
+        root.append(renderConversationTool(group))
+      }
+      continue
+    }
     if (item.kind === 'process') processItems.push(item)
     else {
       flushProcess()

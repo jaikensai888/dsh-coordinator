@@ -7,6 +7,8 @@ type ConversationApi = {
   createConversationState: () => any
   applyConversationFrame: (state: any, frame: any) => any
   conversationWindow: (items: any[], start: number, end: number) => any
+  conversationEntriesFromEvent: (event: any) => any[]
+  conversationToolGroups: (items: any[]) => any[]
   prependConversationRecords: (state: any, records: any[], hasMore: boolean) => any
   markdownBlocks: (text: string) => any[]
 }
@@ -21,7 +23,7 @@ function loadConversationApi(): ConversationApi {
 
   const context: Record<string, unknown> = {}
   vm.runInNewContext(
-    `${html.slice(start, end)}\nthis.__conversationApi = { createConversationState, applyConversationFrame, conversationWindow, prependConversationRecords, markdownBlocks }`,
+    `${html.slice(start, end)}\nthis.__conversationApi = { createConversationState, applyConversationFrame, conversationWindow, conversationEntriesFromEvent, conversationToolGroups, prependConversationRecords, markdownBlocks }`,
     context,
   )
   return context.__conversationApi as ConversationApi
@@ -186,6 +188,145 @@ describe('conversation pane model', () => {
       ['user', '旧协议回显'],
       ['assistant', '旧协议回答'],
     ])
+  })
+
+  it('keeps tool lifecycle records out of message bubbles and pairs them by call id', () => {
+    const api = loadConversationApi()
+
+    const assistantEntries = api.conversationEntriesFromEvent({
+      type: 'assistant/message',
+      seq: 10,
+      data: {
+        turn: 2,
+        step: 0,
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '我先查看文件。' },
+            { type: 'tool-call', id: 'call-1', name: 'bash', arguments: '{"command":"pwd"}' },
+          ],
+        },
+      },
+    })
+    const resultEntries = api.conversationEntriesFromEvent({
+      type: 'tool/result',
+      seq: 12,
+      data: {
+        turn: 2,
+        step: 0,
+        message: {
+          role: 'user',
+          source: { type: 'tool-result', callId: 'call-1' },
+          content: [{
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            content: [{ type: 'text', text: 'C:\\workspace' }],
+            isError: false,
+          }],
+        },
+      },
+    })
+
+    expect(assistantEntries.map((entry: any) => [entry.kind, entry.text])).toEqual([
+      ['assistant', '我先查看文件。'],
+    ])
+    expect(api.conversationEntriesFromEvent({
+      type: 'assistant/message',
+      data: {
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: 'call-1', name: 'bash', arguments: '{}' }],
+        },
+      },
+    })).toEqual([])
+
+    const callEntries = api.conversationEntriesFromEvent({
+      type: 'tool/call',
+      seq: 11,
+      data: {
+        turn: 2,
+        step: 0,
+        callId: 'call-1',
+        name: 'bash',
+        arguments: '{"command":"pwd"}',
+      },
+    })
+    expect(callEntries).toHaveLength(1)
+    expect(callEntries[0]).toMatchObject({
+      kind: 'tool',
+      phase: 'call',
+      callId: 'call-1',
+      name: 'bash',
+      argsRaw: '{"command":"pwd"}',
+    })
+    expect(resultEntries).toHaveLength(1)
+    expect(resultEntries[0]).toMatchObject({
+      kind: 'tool',
+      phase: 'result',
+      callId: 'call-1',
+      output: 'C:\\workspace',
+      isError: false,
+    })
+
+    const groups = api.conversationToolGroups([
+      ...assistantEntries,
+      ...callEntries,
+      ...resultEntries,
+    ])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatchObject({
+      callId: 'call-1',
+      name: 'bash',
+      argsRaw: '{"command":"pwd"}',
+      output: 'C:\\workspace',
+      state: 'ok',
+    })
+  })
+
+  it('projects failed tool results as error rows instead of user messages', () => {
+    const api = loadConversationApi()
+    const entries = api.conversationEntriesFromEvent({
+      type: 'tool/result',
+      seq: 20,
+      data: {
+        message: {
+          role: 'user',
+          source: { type: 'tool-result', callId: 'call-error' },
+          content: [{
+            type: 'tool-result',
+            toolCallId: 'call-error',
+            content: [{ type: 'text', text: 'permission denied\\nfull diagnostic' }],
+            isError: true,
+          }],
+        },
+      },
+    })
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'tool',
+      phase: 'result',
+      callId: 'call-error',
+      output: 'permission denied\\nfull diagnostic',
+      isError: true,
+    })
+    expect(api.conversationToolGroups(entries)[0]).toMatchObject({ state: 'error' })
+
+    const errorEventEntries = api.conversationEntriesFromEvent({
+      type: 'tool/error',
+      seq: 21,
+      data: {
+        callId: 'call-error-event',
+        name: 'bash',
+        error: { name: 'ToolError', message: 'command failed' },
+      },
+    })
+    expect(errorEventEntries).toHaveLength(1)
+    expect(api.conversationToolGroups([
+      { kind: 'tool', phase: 'call', callId: 'call-error-event', name: 'bash', argsRaw: '{}' },
+      ...errorEventEntries,
+    ])[0]).toMatchObject({ state: 'error', output: 'ToolError · command failed' })
   })
 
   it('splits markdown code fences into safe renderable blocks', () => {
