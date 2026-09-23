@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 type ConversationApi = {
   createConversationState: () => any
   applyConversationFrame: (state: any, frame: any) => any
+  conversationWindow: (items: any[], start: number, end: number) => any
+  prependConversationRecords: (state: any, records: any[], hasMore: boolean) => any
   markdownBlocks: (text: string) => any[]
 }
 
@@ -19,13 +21,61 @@ function loadConversationApi(): ConversationApi {
 
   const context: Record<string, unknown> = {}
   vm.runInNewContext(
-    `${html.slice(start, end)}\nthis.__conversationApi = { createConversationState, applyConversationFrame, markdownBlocks }`,
+    `${html.slice(start, end)}\nthis.__conversationApi = { createConversationState, applyConversationFrame, conversationWindow, prependConversationRecords, markdownBlocks }`,
     context,
   )
   return context.__conversationApi as ConversationApi
 }
 
 describe('conversation pane model', () => {
+  it('keeps the full model while selecting a bounded render window', () => {
+    const api = loadConversationApi()
+    const items = Array.from({ length: 8 }, (_, index) => `item-${index}`)
+
+    expect(api.conversationWindow(items, 2, 5)).toEqual({
+      start: 2,
+      end: 5,
+      hiddenBefore: 2,
+      hiddenAfter: 3,
+      items: ['item-2', 'item-3', 'item-4'],
+    })
+  })
+
+  it('starts a long snapshot at the latest window without dropping history', () => {
+    const api = loadConversationApi()
+    const state = api.createConversationState()
+    const records = Array.from({ length: 200 }, (_, index) => ({
+      type: 'event',
+      event: { type: 'user-message', seq: index, data: { text: `history-${index}` } },
+    }))
+
+    api.applyConversationFrame(state, { type: 'snapshot', records })
+
+    expect(state.items).toHaveLength(200)
+    expect(state.renderStart).toBe(80)
+    expect(state.renderEnd).toBe(200)
+  })
+
+  it('keeps the visible records anchored when an older page is prepended', () => {
+    const api = loadConversationApi()
+    const state = api.createConversationState()
+    const records = Array.from({ length: 200 }, (_, index) => ({
+      type: 'event',
+      event: { type: 'user-message', seq: index, data: { text: `history-${index}` } },
+    }))
+    api.applyConversationFrame(state, { type: 'snapshot', records })
+
+    api.prependConversationRecords(state, [{
+      type: 'event',
+      event: { type: 'user-message', seq: -1, data: { text: 'older' } },
+    }], true)
+
+    expect(state.items).toHaveLength(201)
+    expect(state.renderStart).toBe(81)
+    expect(state.renderEnd).toBe(201)
+    expect(state.items[state.renderStart]!.text).toBe('history-80')
+  })
+
   it('keeps real message roles and packed assistant chunks readable', () => {
     const api = loadConversationApi()
     const state = api.createConversationState()
