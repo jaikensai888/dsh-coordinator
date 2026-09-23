@@ -27,6 +27,16 @@ pnpm --config.verify-deps-before-run=false --config.confirmModulesPurge=false ru
 
 ### 1.2 启动 Coordinator
 
+推荐直接运行仓库根目录的 `start.cmd`：
+
+```powershell
+.\start.cmd
+```
+
+脚本会先清理占用 `39472` 端口的旧 Node Coordinator，再启动一个允许局域网节点连接的实例。保持这个窗口运行，停止服务按 `Ctrl+C`。
+
+如需手动启动，使用：
+
 ```powershell
 node lib/cli.js --port 39472
 ```
