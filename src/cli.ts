@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 /**
- * `dsh-coordinate` — run a Coordinator from a shell.
+ * `dsh-coordinate` — run a Coordinator from a shell, and create its administrator.
  *
- * Exists because the service's most useful verification is not a unit test: it is
- * a real DSH node dialling in from another process and answering a real Remote.
- * That needs a standalone process with a configurable port, which is this file.
+ * Two jobs, one binary:
+ *
+ * - **`dsh-coordinate [options]`** starts the service. Persistence is a SQLite
+ *   database by default; `--no-state-file` keeps everything in memory for a
+ *   throwaway test and turns management login off, because there is nowhere to
+ *   keep an account.
+ * - **`dsh-coordinate admin init|reset-password`** creates or resets the single
+ *   administrator. The password is typed at the console and never accepted as a
+ *   command-line argument: an argument is visible in the process list and in shell
+ *   history, which is a strange place to keep the only credential to the console.
  *
  * Credential handling is the one thing worth reading carefully:
  *
@@ -13,28 +20,27 @@
  * - `--node-env <nodeId>:<ENV_VAR>` reads it from the environment instead, and is
  *   the recommended form;
  * - `--nodes-file <path>` reads a JSON array of records, and the file's
- *   permissions are the operator's responsibility (spec §7: this file grants
- *   remote access to other machines).
+ *   permissions are the operator's responsibility.
  *
- * Nothing here ever prints a token.
+ * Nothing here ever prints a token or a password.
  *
  * @module dsh-coordinator/cli
  */
 
 import { readFile } from 'node:fs/promises'
 import { networkInterfaces } from 'node:os'
+import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
+import { AuthService, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './auth.js'
+import { openCoordinatorDatabase, type CoordinatorDatabase } from './database.js'
 import { Coordinator, DEFAULT_PATH, DEFAULT_PORT, formatHost, isLoopback, isWildcardHost } from './server.js'
-import { DEFAULT_STATE_FILE_NAME } from './state-file.js'
+import { resolveDatabasePaths } from './state-migration.js'
 import { isCoordinatorError } from './errors.js'
 import { createLogger, LOG_LEVELS, type LogLevel } from './log.js'
 import type { NodeRecord } from './protocol.js'
 
 /**
  * This machine's non-loopback IPv4 addresses.
- *
- * Exists because a wildcard bind cannot be described by the string it was
- * configured with: the operator needs the address a *peer* would type.
  * @returns the addresses, or an empty array on a machine with no network.
  */
 function reachableAddresses(): string[] {
@@ -61,7 +67,15 @@ interface CliOptions {
   allowInsecureBind: boolean
   /** Where to persist state, or undefined when `--no-state-file` was given. */
   stateFile?: string
+  /** The unified database path. */
+  dbFile?: string
+  /** The JSON file to import on first start. */
+  migrateStateFile?: string
   noStateFile: boolean
+  publicOrigin?: string
+  allowedOrigins: string[]
+  secureCookies: boolean
+  usageSync?: boolean
   heartbeatIntervalMs?: number
   handshakeTimeoutMs?: number
   requestTimeoutMs?: number
@@ -75,6 +89,8 @@ const HELP = `dsh-coordinate — accept outbound DSH node connections and forwar
 
 Usage:
   dsh-coordinate [options]
+  dsh-coordinate admin init [--db-file <path>] [--username <name>]
+  dsh-coordinate admin reset-password [--db-file <path>]
 
 Options:
   --port <n>                  TCP port to listen on (default ${DEFAULT_PORT}; 0 picks a free one)
@@ -84,9 +100,14 @@ Options:
   --node-env <nodeId>:<VAR>   approve a node, reading its token from an environment variable (preferred)
   --nodes-file <path>         JSON array of {nodeId, token, nodeName?, role?} records
   --enroll-token <secret>     let an unknown node enroll itself by presenting this secret
-  --state-file <path>         where to persist the registry and the enrollment secret
-                              (default ${DEFAULT_STATE_FILE_NAME} in the working directory)
-  --no-state-file             keep everything in memory; nothing is written to disk
+  --db-file <path>            the unified SQLite database (default coordinator.sqlite)
+  --migrate-state-file <path> the legacy JSON to import on first start
+  --state-file <path>         deprecated: maps <name>.json to <name>.sqlite and imports it once
+  --no-state-file             keep everything in memory; management login and usage sync are off
+  --public-origin <origin>    the origin browsers use, e.g. http://192.168.0.13:8101
+  --allowed-origin <origin>   an extra same-site origin (repeatable)
+  --secure-cookies            set Secure on the session cookie (HTTPS front end only)
+  --no-usage-sync             do not poll nodes for usage
   --api-token <token>         require this bearer token on the operator API
   --no-api                    do not install the operator API
   --allow-insecure-bind       permit a non-loopback bind (put TLS in front of it)
@@ -127,6 +148,8 @@ export function parseArgs(argv: readonly string[]): { help: true } | { version: 
     enableApi: true,
     allowInsecureBind: false,
     noStateFile: false,
+    allowedOrigins: [],
+    secureCookies: false,
   }
   const numeric = (name: string, raw: string | undefined): number => {
     const value = Number(raw)
@@ -181,8 +204,26 @@ export function parseArgs(argv: readonly string[]): { help: true } | { version: 
       case '--state-file':
         options.stateFile = next()
         break
+      case '--db-file':
+        options.dbFile = next()
+        break
+      case '--migrate-state-file':
+        options.migrateStateFile = next()
+        break
       case '--no-state-file':
         options.noStateFile = true
+        break
+      case '--public-origin':
+        options.publicOrigin = next()
+        break
+      case '--allowed-origin':
+        options.allowedOrigins.push(next())
+        break
+      case '--secure-cookies':
+        options.secureCookies = true
+        break
+      case '--no-usage-sync':
+        options.usageSync = false
         break
       case '--api-token':
         options.apiToken = next()
@@ -255,12 +296,155 @@ export async function loadNodesFile(path: string): Promise<NodeRecord[]> {
   })
 }
 
+/** How the administrator commands talk to the operator. */
+export interface AdminCommandDeps {
+  /** Ask for one secret line, with echo suppressed. */
+  readonly prompt?: (question: string) => Promise<string>
+  readonly stdout?: (text: string) => void
+  readonly stderr?: (text: string) => void
+  /** Open the database; injectable so a test can use a temporary file. */
+  readonly openDatabase?: (file: string) => CoordinatorDatabase
+  readonly hasTty?: boolean
+}
+
+/** Read one password from a terminal without echoing it. */
+export async function promptPassword(question: string): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
+    // `readline` has no public "hide input" switch; suppressing its writer is the
+    // documented-enough way to keep the password off the screen. It is never
+    // echoed by this process because nothing writes it.
+    const mutable = rl as unknown as { _writeToOutput?: (text: string) => void }
+    mutable._writeToOutput = (text: string) => {
+      if (text.includes(question)) process.stdout.write(question)
+    }
+    process.stdout.write(question)
+    rl.question('', (answer) => {
+      rl.close()
+      process.stdout.write('\n')
+      resolve(answer)
+    })
+    rl.on('SIGINT', () => {
+      rl.close()
+      reject(new Error('cancelled'))
+    })
+  })
+}
+
+/** Parse `--flag value` pairs for the admin subcommands. */
+function adminFlags(argv: readonly string[]): Map<string, string> {
+  const flags = new Map<string, string>()
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index] as string
+    if (!flag.startsWith('--')) throw new Error(`unexpected argument "${flag}"`)
+    const value = argv[index + 1]
+    if (value === undefined) throw new Error(`${flag} requires a value`)
+    flags.set(flag, value)
+    index += 1
+  }
+  for (const flag of flags.keys()) {
+    if (flag !== '--db-file' && flag !== '--username') {
+      throw new Error(`unknown flag "${flag}" for an admin command`)
+    }
+  }
+  return flags
+}
+
+/**
+ * Run one `admin` subcommand.
+ * @param argv - arguments after `admin`.
+ * @param deps - injectable prompt, streams, and database opener.
+ * @returns the process exit code.
+ */
+export async function runAdminCommand(argv: readonly string[], deps: AdminCommandDeps = {}): Promise<number> {
+  const stdout = deps.stdout ?? ((text: string) => { process.stdout.write(text) })
+  const stderr = deps.stderr ?? ((text: string) => { process.stderr.write(text) })
+  const action = argv[0]
+  if (action !== 'init' && action !== 'reset-password') {
+    stderr(`admin expects "init" or "reset-password"\n\n${HELP}`)
+    return 2
+  }
+  let flags: Map<string, string>
+  try {
+    flags = adminFlags(argv.slice(1))
+  } catch (error) {
+    stderr(`${(error as Error).message}\n`)
+    return 2
+  }
+  const username = flags.get('--username') ?? 'admin'
+  if (action === 'reset-password' && flags.has('--username')) {
+    stderr('reset-password keeps the existing username; --username is not accepted\n')
+    return 2
+  }
+  const hasTty = deps.hasTty ?? (process.stdin.isTTY === true)
+  if (!hasTty) {
+    stderr('this command needs a terminal: the password is typed, never passed as an argument\n')
+    return 2
+  }
+
+  const paths = resolveDatabasePaths({
+    ...(flags.get('--db-file') === undefined ? {} : { dbFile: flags.get('--db-file') as string }),
+  })
+  const dbFile = paths.dbFile
+  if (dbFile === null) {
+    stderr('an admin command needs a database\n')
+    return 2
+  }
+
+  let database: CoordinatorDatabase
+  try {
+    database = deps.openDatabase?.(dbFile) ?? openCoordinatorDatabase({ file: dbFile })
+  } catch (error) {
+    stderr(`could not open ${dbFile}: ${(error as Error).message}\n`)
+    return 1
+  }
+  try {
+    const auth = new AuthService({ db: database.db })
+    const prompt = deps.prompt ?? promptPassword
+    if (action === 'init') {
+      if (auth.initialized) {
+        stderr(`an administrator already exists in ${dbFile}; use "admin reset-password"\n`)
+        return 1
+      }
+      const password = await prompt(`password for ${username} (${MIN_PASSWORD_LENGTH}..${MAX_PASSWORD_LENGTH} characters): `)
+      const again = await prompt('repeat the password: ')
+      if (password !== again) {
+        stderr('the passwords do not match\n')
+        return 1
+      }
+      await auth.initAdmin(username, password)
+      stdout(`administrator "${username}" created in ${dbFile}\n`)
+      return 0
+    }
+    if (!auth.initialized) {
+      stderr(`no administrator exists in ${dbFile}; run "admin init" first\n`)
+      return 1
+    }
+    const password = await prompt(`new password for ${auth.user?.username ?? username}: `)
+    const again = await prompt('repeat the new password: ')
+    if (password !== again) {
+      stderr('the passwords do not match\n')
+      return 1
+    }
+    await auth.resetPassword(password)
+    stdout(`password reset in ${dbFile}; every existing session was revoked\n`)
+    return 0
+  } catch (error) {
+    stderr(`${(error as Error).message}\n`)
+    return 1
+  } finally {
+    database.close()
+  }
+}
+
 /**
  * Run the service until a signal arrives.
  * @param argv - arguments after the executable and script.
  * @returns the process exit code.
  */
 export async function main(argv: readonly string[]): Promise<number> {
+  if (argv[0] === 'admin') return await runAdminCommand(argv.slice(1))
+
   let parsed: ReturnType<typeof parseArgs>
   try {
     parsed = parseArgs(argv)
@@ -292,6 +476,26 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
   }
 
+  /*
+    Resolve the store once, here.
+
+    `--state-file` is kept as an alias: it names a JSON file, and the contract says
+    that file maps to `<name>.sqlite` beside it, imported exactly once. Resolving it
+    here rather than inside `Coordinator` keeps one answer to "where is the data".
+  */
+  let paths: ReturnType<typeof resolveDatabasePaths>
+  try {
+    paths = resolveDatabasePaths({
+      ...(options.dbFile === undefined ? {} : { dbFile: options.dbFile }),
+      ...(options.stateFile === undefined ? {} : { stateFile: options.stateFile }),
+      ...(options.migrateStateFile === undefined ? {} : { migrateStateFile: options.migrateStateFile }),
+      ...(options.noStateFile ? { noStateFile: true } : {}),
+    })
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`)
+    return 2
+  }
+
   const logger = createLogger({
     level: options.logLevel,
     traceFrames: options.traceFrames,
@@ -309,10 +513,12 @@ export async function main(argv: readonly string[]): Promise<number> {
       host: options.host,
       path: options.path,
       records: options.records,
-      // Persistence is on by default: a secret set in the UI that vanished on the
-      // next restart would make "configure it once" a lie. The path is printed at
-      // startup so it is never a surprise, and `--no-state-file` opts out.
-      ...(options.noStateFile ? {} : { stateFile: options.stateFile ?? DEFAULT_STATE_FILE_NAME }),
+      ...(paths.dbFile === null ? {} : { dbFile: paths.dbFile }),
+      ...(paths.legacyFile === undefined ? {} : { migrateStateFile: paths.legacyFile }),
+      ...(options.publicOrigin === undefined ? {} : { publicOrigin: options.publicOrigin }),
+      ...(options.allowedOrigins.length === 0 ? {} : { allowedOrigins: options.allowedOrigins }),
+      ...(options.secureCookies ? { secureCookies: true } : {}),
+      ...(options.usageSync === undefined ? {} : { usageSync: options.usageSync }),
       enrollmentFromCli: options.enrollmentToken !== undefined,
       ...(options.enrollmentToken === undefined
         ? {}
@@ -353,19 +559,12 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   try {
     const address = await coordinator.start()
-    const origin = `http://${formatHost(address.host)}:${address.port}`
+    const origin = options.publicOrigin ?? `http://${formatHost(address.host)}:${address.port}`
     const local = `http://127.0.0.1:${address.port}`
     const servesUi = options.enableApi && coordinator.sessionsEnabled
-    // The two privileges are decided separately now, so the banner has to report
-    // them separately: where nodes may dial from, and where administration works.
-    // The token may have been restored from the state file or configured through
-    // the localhost UI, so the coordinator is the source of truth here.
     const remoteAdmin = coordinator.operatorTokenConfigured
 
     if (isWildcardHost(address.host)) {
-      // `0.0.0.0` listens on every interface, but no other machine can *dial* it.
-      // Printing it as the node URL would hand over a configuration that cannot
-      // work, and the resulting timeout reads like a firewall problem.
       const usable = reachableAddresses()
       process.stderr.write(`ready: listening on every interface, port ${address.port}\n`)
       if (usable.length === 0) {
@@ -379,32 +578,49 @@ export async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write(`ready: nodes dial ${address.url}\n`)
     }
 
-    const uiSuffix = servesUi ? `; UI on ${local}/ui` : ''
+    const uiSuffix = servesUi ? `; console on ${origin}/ui` : ''
     process.stderr.write(
       remoteAdmin
-        ? `  operator API: ${origin}/api${uiSuffix}${isLoopback(address.host) ? '' : '  (reachable from the network, bearer token required)'}\n`
-        : `  operator API: ${local}/api${uiSuffix}  (this machine only${isLoopback(address.host) ? '' : '; pass --api-token to administer remotely'})\n`,
+        ? `  operator API: ${origin}/api${uiSuffix}${isLoopback(address.host) ? '' : '  (bearer token for machine clients)'}\n`
+        : `  operator API: ${local}/api${uiSuffix}  (no bearer token set: browsers use the administrator session)\n`,
     )
 
     if (!isLoopback(address.host)) {
       // The enrollment secret is the door key; plaintext is the wall being missing.
       // Say both facts once, at the moment the operator chose this.
       process.stderr.write(
-        'insecure bind: node connections are plaintext on the network. A node token is full\n' +
-        '  access to that machine, so put TLS in front of this (wss:// via a reverse proxy) and\n' +
-        '  prefer per-node tokens over the shared secret. The operator API is unaffected — it is\n' +
-        `  ${remoteAdmin ? 'token-gated' : 'fenced to this machine'}.\n`,
+        'insecure bind: node connections and the console are plaintext on the network. A node token is\n' +
+        '  full access to that machine, and the administrator password crosses the network unencrypted\n' +
+        '  on HTTP. Put TLS in front of this (wss:// and https:// via a reverse proxy) for anything wider\n' +
+        '  than a trusted LAN.\n',
+      )
+    }
+    if (options.publicOrigin !== undefined && !options.publicOrigin.startsWith('https://')) {
+      process.stderr.write(
+        `note: the management console is published over plain HTTP at ${options.publicOrigin}; the session\n` +
+        '  cookie has no Secure bit and the password is not encrypted in transit. This is the documented\n' +
+        '  first-phase posture for a trusted LAN, not a public deployment.\n',
       )
     }
 
     // Stated unconditionally, because "where did my secret go?" is a question an
     // operator should never have to ask a log file to answer.
-    const state = coordinator.stateFile
-    process.stderr.write(
-      state === undefined
-        ? 'state: in memory only (--no-state-file); node tokens and the enrollment secret are lost on exit\n'
-        : `state: ${state} (holds node tokens and the enrollment secret; keep it private)\n`,
-    )
+    if (paths.dbFile === null) {
+      process.stderr.write(
+        'state: in memory only (--no-state-file); node tokens are lost on exit, management login is disabled,\n' +
+        '  and usage sync is off because there is nowhere to store it\n',
+      )
+    } else {
+      process.stderr.write(
+        `state: ${paths.dbFile} (schema via ${String(coordinator.sqliteDriver)}; holds node tokens, the administrator,\n` +
+        '  sessions and usage; keep it private and back it up with SQLite\'s backup API)\n',
+      )
+      process.stderr.write(
+        coordinator.adminInitialized
+          ? 'administrator: configured\n'
+          : 'administrator: not created yet — run "dsh-coordinate admin init --db-file <path>" on this server\n',
+      )
+    }
     if (coordinator.enrollmentOpen) {
       process.stderr.write('enrollment: open — an unknown node presenting the shared secret is admitted\n')
     }

@@ -53,6 +53,8 @@ describe('parseArgs defaults', () => {
       enableApi: true,
       allowInsecureBind: false,
       noStateFile: false,
+      allowedOrigins: [],
+      secureCookies: false,
     })
   })
 })

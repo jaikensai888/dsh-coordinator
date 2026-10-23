@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · DSH Coordinator</title>
+<link rel="stylesheet" href="/ui/console.css">
+<!--
+  The sign-in page.
+
+  Three rules it follows, and one it cannot:
+
+  - no account is suggested, remembered, or filled in: there is exactly one
+    administrator and this page does not know their name;
+  - the password lives in this input for as long as it takes to send it, and is never
+    written to storage, a URL, or a log;
+  - a failure says "username or password is wrong" without saying which, because the
+    server deliberately gives the same answer for both.
+  - It cannot encrypt the password: this deployment is plain HTTP on a LAN, and the
+    page says so rather than implying a security it does not have.
+-->
+</head>
+<body class="u-page">
+<div class="u-login-wrap">
+  <form class="u-login-card" id="login-form" autocomplete="on" novalidate>
+    <h1>DSH Coordinator</h1>
+    <p class="u-login-sub">管理控制台 · 单管理员</p>
+
+    <div class="u-alert" id="login-error" role="alert" aria-live="polite"></div>
+    <div class="u-alert u-info" id="login-info" role="status" aria-live="polite"></div>
+
+    <div class="u-field">
+      <label for="username">用户名</label>
+      <input class="u-input" id="username" name="username" autocomplete="username"
+             autocapitalize="off" spellcheck="false" required>
+    </div>
+    <div class="u-field">
+      <label for="password">密码</label>
+      <input class="u-input" id="password" name="password" type="password"
+             autocomplete="current-password" required>
+    </div>
+
+    <button class="u-button u-primary u-block" id="submit" type="submit">登录</button>
+
+    <p class="u-note" id="transport-note">
+      当前通过局域网 HTTP 访问：密码与会话 Cookie 在网络中没有链路加密。请仅在可信网络中使用，
+      不要把本地址暴露到公网；需要远程访问时应先配置 HTTPS 反向代理。
+    </p>
+  </form>
+</div>
+
+<script>
+'use strict'
+
+const form = document.getElementById('login-form')
+const username = document.getElementById('username')
+const password = document.getElementById('password')
+const submit = document.getElementById('submit')
+const errorBox = document.getElementById('login-error')
+const infoBox = document.getElementById('login-info')
+
+/** Show one message, hiding the other. */
+function show (target, text) {
+  errorBox.classList.remove('u-on')
+  infoBox.classList.remove('u-on')
+  if (text === '') return
+  target.textContent = text
+  target.classList.add('u-on')
+}
+
+/** Read one JSON envelope, tolerating an empty body. */
+async function readEnvelope (response) {
+  try {
+    return await response.json()
+  } catch {
+    return { ok: false, error: { code: 'client/unreadable', message: '服务器返回了无法解析的响应' } }
+  }
+}
+
+/** Ask the server whether this browser already has a session. */
+async function probe () {
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+    const body = await readEnvelope(response)
+    if (body.ok === true && body.value && body.value.authenticated === true) {
+      window.location.replace('/ui')
+      return
+    }
+    if (body.ok === true && body.value && body.value.initialized === false) {
+      show(infoBox, '尚未创建管理员账号。请在服务器上运行：dsh-coordinate admin init --db-file <数据库路径>')
+      submit.disabled = true
+    }
+  } catch {
+    show(infoBox, '无法连接 Coordinator；请确认服务正在运行。')
+  }
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const name = username.value.trim()
+  const secret = password.value
+  if (name === '' || secret === '') {
+    show(errorBox, '请输入用户名和密码。')
+    return
+  }
+  submit.disabled = true
+  submit.textContent = '登录中…'
+  show(errorBox, '')
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: name, password: secret }),
+    })
+    const body = await readEnvelope(response)
+    if (response.status === 200 && body.ok === true) {
+      // The password is not kept: the input is cleared before the navigation, so a
+      // back-button return does not find it still filled in.
+      password.value = ''
+      window.location.replace('/ui')
+      return
+    }
+    if (response.status === 429) {
+      const wait = response.headers.get('retry-after')
+      show(errorBox, wait === null ? '尝试次数过多，请稍后再试。' : `尝试次数过多，请在 ${wait} 秒后重试。`)
+    } else if (response.status === 503) {
+      show(infoBox, '管理登录尚未启用：服务器需要持久化数据库，并先创建管理员。')
+    } else if (response.status === 401) {
+      // Deliberately the same sentence for an unknown user and a wrong password.
+      show(errorBox, '用户名或密码不正确。')
+      password.select()
+    } else {
+      const message = body && body.error && typeof body.error.message === 'string'
+        ? body.error.message
+        : '登录失败，请稍后再试。'
+      show(errorBox, message)
+    }
+  } catch {
+    show(errorBox, '网络错误，登录没有完成。')
+  } finally {
+    submit.disabled = false
+    submit.textContent = '登录'
+    // Clear the in-memory copy as soon as the attempt is over, whatever it was.
+    if (document.activeElement !== password) password.value = ''
+  }
+})
+
+void probe()
+</script>
+</body>
+</html>

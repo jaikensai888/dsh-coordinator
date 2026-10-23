@@ -18,6 +18,8 @@ import type { NodeCapabilitySummary } from '../src/protocol.js'
 import { connectFakeNode, settle, waitFor, type FakeNodeClient, type SentFrame } from './helpers.js'
 
 const TOKEN = 'session-view-token'
+/** The machine credential these management calls use. */
+const OPERATOR = 'operator-token-for-session-view-tests'
 const NODE_ID = 'node-with-sessions'
 
 /**
@@ -74,6 +76,7 @@ interface Fixture {
 async function createFixture(options: CoordinatorOptions = {}): Promise<Fixture> {
   const coordinator = new Coordinator({
     port: 0,
+    apiToken: OPERATOR,
     enrollment: { kind: 'shared-secret', token: TOKEN },
     handshakeTimeoutMs: 2_000,
     heartbeatIntervalMs: 30_000,
@@ -154,7 +157,11 @@ afterEach(async () => {
 async function api(port: number, path: string, init: RequestInit = {}): Promise<{ status: number; body: any }> {
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${OPERATOR}`,
+      ...(init.headers ?? {}),
+    },
   })
   return { status: response.status, body: await response.json() }
 }

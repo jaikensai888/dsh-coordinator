@@ -26,6 +26,8 @@ import {
 
 const SECRET = 'a-perfectly-ordinary-test-secret'
 const TOKEN = 'node-token-0123456789'
+/** The machine credential every management call in this file uses. */
+const OPERATOR = 'operator-token-for-state-tests'
 
 const directories: string[] = []
 
@@ -208,7 +210,11 @@ describe('changing the enrollment rule at runtime', () => {
 async function api(port: number, path: string, init: RequestInit = {}): Promise<{ status: number; body: any }> {
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${OPERATOR}`,
+      ...(init.headers ?? {}),
+    },
   })
   return { status: response.status, body: await response.json() }
 }
@@ -221,11 +227,14 @@ describe('the enrollment route and persistence', () => {
   })
 
   /** Start a Coordinator on a scratch state file. */
-  async function start(options: { readonly file?: string } = {}): Promise<{ coordinator: Coordinator; file: string }> {
+  async function start(
+    options: { readonly file?: string; readonly withoutOperatorToken?: boolean } = {},
+  ): Promise<{ coordinator: Coordinator; file: string }> {
     const file = options.file ?? join(await scratch(), 'state.json')
     const coordinator = new Coordinator({
       port: 0,
       stateFile: file,
+      ...(options.withoutOperatorToken === true ? {} : { apiToken: OPERATOR }),
       heartbeatIntervalMs: 30_000,
       logger: silentLogger,
     })
@@ -240,7 +249,9 @@ describe('the enrollment route and persistence', () => {
 
     const before = await api(coordinator.address!.port, '/api/enrollment')
     expect(before.body.value).toMatchObject({ open: false, persisted: true })
-    expect(before.body.value.stateFile).toBe(file)
+    // The response must not carry a server path: an absolute path tells a caller
+    // where the credentials live without telling the operator anything new.
+    expect(before.body.value.stateFile).toBeUndefined()
     expect(JSON.stringify(before.body)).not.toContain(SECRET)
 
     await api(coordinator.address!.port, '/api/enrollment', {
@@ -289,9 +300,12 @@ describe('the enrollment route and persistence', () => {
     await first.coordinator.stop()
     coordinators.splice(coordinators.indexOf(first.coordinator), 1)
 
-    const second = await start({ file })
-    const missing = await api(second.coordinator.address!.port, '/api/nodes')
+    // No option token this time: the stored one is what has to work.
+    const second = await start({ file, withoutOperatorToken: true })
+    // No credential at all: this is the request an anonymous LAN caller makes.
+    const missing = await fetch(`http://127.0.0.1:${second.coordinator.address!.port}/api/nodes`)
     expect(missing.status).toBe(401)
+    await expect(missing.json()).resolves.toMatchObject({ ok: false })
     const authorized = await api(second.coordinator.address!.port, '/api/nodes', {
       headers: { authorization: `Bearer ${token}` },
     })
@@ -307,6 +321,7 @@ describe('the enrollment route and persistence', () => {
     const coordinator = new Coordinator({
       port: 0,
       stateFile: file,
+      apiToken: OPERATOR,
       enrollment: { kind: 'shared-secret', token: 'from-the-command-line' },
       enrollmentFromCli: true,
       logger: silentLogger,
@@ -335,7 +350,7 @@ describe('the enrollment route and persistence', () => {
   })
 
   it('does not persist when no state file is configured', async () => {
-    const coordinator = new Coordinator({ port: 0, logger: silentLogger })
+    const coordinator = new Coordinator({ port: 0, apiToken: OPERATOR, logger: silentLogger })
     coordinators.push(coordinator)
     await coordinator.start()
     expect(coordinator.stateFile).toBeUndefined()

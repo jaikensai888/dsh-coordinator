@@ -4,6 +4,13 @@
 >
 > API 运行在 Coordinator 与 /node WebSocket 相同的 HTTP 端口上。
 
+
+> **2026-10-23 更新**：新增 `/login`、`GET /api/auth/me`、
+> `POST /api/auth/login|logout|password|activity`，以及 `/api/usage/summary|nodes|series|requests|status`。
+> 管理 API 不再有 localhost 豁免：浏览器用 HttpOnly 会话 Cookie（写操作需 `X-CSRF-Token` 与精确 Origin），
+> 机器客户端用独立 operator Bearer token。完整字段、错误码与统计口径以
+> `docs/specs/2026-10-23-node-usage-contracts.md` §4/§5 为准，本文其余部分是变更前的接口。
+
 ## 1. 基础信息
 
 | 项目 | 当前值 |

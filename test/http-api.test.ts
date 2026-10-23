@@ -62,8 +62,19 @@ afterEach(async () => {
 })
 
 /** Serve one API on a loopback port for the duration of the test. */
+/**
+ * Every request in this file carries the machine credential by default.
+ *
+ * The API has no anonymous mode any more — not even from loopback — so a test
+ * that forgets the header would be testing the 401 path by accident. Tests that
+ * *mean* to be unauthenticated pass their own headers.
+ */
+const TEST_TOKEN = 'test-operator-token'
+
 async function serve(host: HttpApiHost, options: HttpApiOptions = {}): Promise<Served> {
-  const api = createHttpApi(host, options)
+  // Merged rather than defaulted: a test that passes `{maxBodyBytes}` must not
+  // silently lose the credential every other test relies on.
+  const api = createHttpApi(host, { token: TEST_TOKEN, ...options })
   const server = createServer((request, response) => { api.handle(request, response) })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -89,7 +100,9 @@ async function serveTracked(host: HttpApiHost, options: HttpApiOptions = {}): Pr
 }
 
 function get(base: string, path: string, headers: Record<string, string> = {}): Promise<Response> {
-  return fetch(`${base}${path}`, { headers })
+  return fetch(`${base}${path}`, {
+    headers: { authorization: `Bearer ${TEST_TOKEN}`, ...headers },
+  })
 }
 
 function post(
@@ -100,7 +113,7 @@ function post(
 ): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_TOKEN}`, ...headers },
     body: JSON.stringify(body),
   })
 }
@@ -109,7 +122,7 @@ function post(
 function postRaw(base: string, path: string, body: string): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_TOKEN}` },
     body,
   })
 }
@@ -278,14 +291,14 @@ afterEach(async () => {
 
 async function startCoordinator(
   records: readonly NodeRecord[],
-  apiToken?: string,
+  apiToken: string = TEST_TOKEN,
 ): Promise<{ coordinator: Coordinator; base: string }> {
   const coordinator = new Coordinator({
     port: 0,
     records,
     logger: silentLogger,
     shutdownGraceMs: 500,
-    ...(apiToken === undefined ? {} : { apiToken }),
+    apiToken,
   })
   coordinators.push(coordinator)
   const address = await coordinator.start()
@@ -336,7 +349,9 @@ describe('routing', () => {
   it('answers every route with 404 when the API is not installed', async () => {
     const { api, base } = await serveTracked(createStubHost(), { enabled: false })
 
-    expect(api.requiresToken).toBe(false)
+    // The credential is configured independently of the route table, so "not
+    // installed" reads as "no routes" rather than "no token".
+    expect(api.requiresToken).toBe(true)
     for (const path of ['/api/stats', '/api/nodes']) {
       const response = await get(base, path)
       expect(response.status, path).toBe(404)
@@ -370,16 +385,22 @@ describe('the bearer token', () => {
     await expect(authorized.json()).resolves.toMatchObject({ ok: true, value: [READY_VIEW] })
   })
 
-  it('initializes and rotates the operator token from localhost without returning it', async () => {
-    let token: string | undefined
+  it('rotates the operator token without returning it', async () => {
+    /*
+      Rotating the machine token is what an authenticated machine client does to
+      itself. Seeding it anonymously is no longer a workflow: the console is
+      reached through the administrator session, and a service with no credential
+      at all answers 401 rather than treating loopback as an identity.
+    */
+    let token: string | undefined = TEST_TOKEN
     const { base } = await serveTracked(createStubHost(), {
       getToken: () => token,
       setToken: (next) => { token = next },
     })
 
-    const before = await get(base, '/api/operator-token')
-    expect(before.status).toBe(200)
-    await expect(before.json()).resolves.toEqual({ ok: true, value: { configured: false, persisted: false } })
+    const beforeToken = await get(base, '/api/operator-token')
+    expect(beforeToken.status).toBe(200)
+    await expect(beforeToken.json()).resolves.toEqual({ ok: true, value: { configured: true, persisted: false } })
 
     const first = await post(base, '/api/operator-token', { token: OPERATOR_TOKEN })
     expect(first.status).toBe(200)
@@ -635,7 +656,7 @@ describe('stream', () => {
     const controller = new AbortController()
     const response = await fetch(`${base}/api/stream`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TEST_TOKEN}` },
       body: JSON.stringify({ nodeId: NODE_ID, endpoint: 'session/watch' }),
       signal: controller.signal,
     })

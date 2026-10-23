@@ -32,6 +32,8 @@ import type { NodeCapabilitySummary } from '../src/protocol.js'
 import { connectFakeNode, settle, waitFor, type FakeNodeClient, type SentFrame } from './helpers.js'
 
 const TOKEN = 'session-api-token'
+/** The machine credential these management calls use. */
+const OPERATOR = 'operator-token-for-session-api-tests'
 const NODE_ID = 'node-with-session-api'
 
 /** A surface with every session Remote this service knows, plus a stream. */
@@ -171,6 +173,7 @@ async function createFixture(options: CoordinatorOptions = {}): Promise<Fixture>
   const coordinator = new Coordinator({
     port: 0,
     enrollment: { kind: 'shared-secret', token: TOKEN },
+    apiToken: OPERATOR,
     handshakeTimeoutMs: 2_000,
     heartbeatIntervalMs: 30_000,
     logger: silentLogger,
@@ -241,7 +244,11 @@ afterEach(async () => {
 async function api(port: number, path: string, init: RequestInit = {}): Promise<{ status: number; body: any }> {
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${OPERATOR}`,
+      ...(init.headers ?? {}),
+    },
   })
   return { status: response.status, body: await response.json() }
 }
@@ -385,7 +392,10 @@ describe('the session routes over HTTP', () => {
     const opened = created.node.next('stream.open')
     const response = await fetch(`http://127.0.0.1:${created.port}/api/session/follow`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${OPERATOR}`,
+      },
       body: JSON.stringify({ nodeId: NODE_ID, sessionId: 's-1' }),
     })
     const streamId = (await opened)['streamId'] as string

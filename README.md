@@ -1,5 +1,12 @@
 # dsh-coordinator
 
+> **2026-10-23 变更**：节点登记、凭据、管理员、会话和用量已统一存入 SQLite；
+> 管理端需要通过 `/login` 登录（localhost 同样需要），并新增「用量统计」页。
+> 下文标注「仅 loopback」「`coordinator-state.json`」的段落描述的是上一版行为。
+> 部署与回滚见 [docs/admin-usage-operations.md](docs/admin-usage-operations.md)，
+> 驱动与宿主证据见 [docs/usage-compatibility.md](docs/usage-compatibility.md)，
+> 本轮验证结果见 [docs/usage-verification.md](docs/usage-verification.md)。
+
 `dsh-coordinator` 是 `dsh-node` 的对端服务：接收节点主动发起的 WebSocket 连接，
 再通过 HTTP API 或内置 UI 控制节点上的 Remote。
 
@@ -204,8 +211,46 @@ pnpm --config.verify-deps-before-run=false --config.confirmModulesPurge=false ru
 
 ```text
 src/       TypeScript 源码
-ui/        内置管理 UI
+ui/        内置管理 UI（login.html、index.html、usage.js、console.css）
 test/      自动化测试
 lib/       构建产物
 docs/      设计方案、API 文档和实测记录
 ```
+
+## 7. 统一数据库与管理登录（当前版本）
+
+### 7.1 初始化管理员
+
+管理员只能在服务器本地创建，浏览器没有注册入口：
+
+```bash
+node lib/cli.js admin init --db-file /path/to/coordinator.sqlite --username admin
+```
+
+密码在该命令的终端里输入（隐藏回显），不接受 `--password` 参数。忘记密码：
+
+```bash
+node lib/cli.js admin reset-password --db-file /path/to/coordinator.sqlite
+```
+
+### 7.2 启动
+
+```bash
+node lib/cli.js \
+  --host 0.0.0.0 --port 8101 --allow-insecure-bind \
+  --db-file /path/to/coordinator.sqlite \
+  --public-origin http://192.168.0.13:8101
+```
+
+- 管理端：`http://<host>:8101/login`；登录后 `/ui` 默认进入用量概览，可切换回节点与会话。
+- 机器客户端：仍用独立 `Authorization: Bearer <operator-token>`，它不是管理员密码，也不能登录 Web。
+- Node 连接：仍用 node-token 握手，与管理员、operator token 分开。
+- 旧 `--state-file` 仍可用，会自动映射到同名 `.sqlite` 并导入一次；导入成功后旧 JSON
+  重命名为 `.migrated.bak`。`--no-state-file` 保留内存模式，但会关闭登录与用量同步。
+
+### 7.3 用量数据
+
+- 数据来源：每个节点上 `dsh-node` 的本地队列，通过 `nodeUsage/status|read|ack` 拉取。
+- 统计口径：调用次数、未缓存输入、缓存读写、输出 Token；缺 usage 记 unknown，**不当作 0**。
+- 首次部署顺序：先升级 dsh-node，再升级 Coordinator。旧节点会显示「不支持采集」。
+- 详细运维步骤与回滚见 [docs/admin-usage-operations.md](docs/admin-usage-operations.md)。

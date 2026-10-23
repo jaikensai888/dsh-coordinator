@@ -48,6 +48,20 @@ export const COORDINATOR_ERROR_CODES = [
   'coordinator/frame-too-large',
   /** The node registry is full. */
   'coordinator/registry-full',
+  /** A management API call arrived without a session or a bearer token. */
+  'coordinator/auth-required',
+  /** No administrator exists yet, so browser login is impossible. */
+  'coordinator/auth-uninitialized',
+  /** A login attempt was refused by the rate limiter. */
+  'coordinator/auth-rate-limited',
+  /** A cookie-authenticated write failed its Origin or CSRF check. */
+  'coordinator/auth-invalid-request',
+  /** The database could not be read or written. */
+  'coordinator/storage-unavailable',
+  /** Neither SQLite driver is available on this Node. */
+  'coordinator/sqlite-unavailable',
+  /** The database was written by a newer build. */
+  'coordinator/schema-too-new',
   /** This service is shutting down. */
   'coordinator/shutdown',
   /** A bug in this service; never a business outcome. */

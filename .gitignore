@@ -5,6 +5,9 @@ lib/
 test/.tmp/
 .pnpm-store/
 
+# Local deployment targets and release instructions may contain private infrastructure details.
+docs/fabu.md
+
 # Never commit a node registry: it holds bearer credentials for other machines.
 nodes.json
 *nodes*.json
@@ -13,3 +16,11 @@ nodes.json
 # hand over every machine this Coordinator can reach, plus the right to enroll more.
 coordinator-state.json
 coordinator-state.json.tmp
+
+# The unified database holds the same credentials, plus the administrator hash and
+# every usage row. Its WAL, shm and lock files are part of the same secret material.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite.lock
+*.migrated.bak

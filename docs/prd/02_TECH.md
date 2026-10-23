@@ -2,6 +2,13 @@
 
 > 文档性质：按当前源码整理的技术基线。涉及协议字段和默认值时，以 src/ 为最终事实来源。
 
+
+> **2026-10-23 更新**：持久化已从 JSON 状态文件改为统一 SQLite（`src/sqlite.ts`、
+> `src/database.ts`、`src/db-schema.ts`、`src/state-migration.ts`），新增单管理员会话认证
+> （`src/auth.ts`、`src/auth-http.ts`）与节点用量同步（`src/usage/*`）。
+> 本文其余部分描述的是变更前的内存/JSON 形态，字段与行为以
+> `docs/specs/2026-10-23-node-usage-contracts.md` 与当前源码为准。
+
 ## 1. 技术结论
 
 dsh-coordinator 是一个 Node.js 单进程服务，使用一个 node:http listener 同时承载：

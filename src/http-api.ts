@@ -1,47 +1,50 @@
 /**
- * The operator API: JSON over the same loopback port the nodes use.
+ * The operator API: JSON over the same port the nodes use.
  *
- * Two audiences, one port, no crossover: nodes upgrade to WebSocket at
- * `/node`, operators speak JSON under `/api`. Keeping them together means there
- * is exactly one thing to bind, firewall, and shut down.
+ * Two audiences, one port, no crossover: nodes upgrade to WebSocket at `/node`,
+ * browsers use the console and its cookie, and machine clients use the operator
+ * bearer token. Keeping them together means there is exactly one thing to bind,
+ * firewall, and shut down.
  *
  * Three deliberate properties:
  *
  * - **Failures are data.** A Remote that failed comes back as HTTP 200 with
- *   `{ok: false, error: {code, ...}}`. The node's own codes survive the trip
- *   (`session/not-found`, `node/backpressure`, …), because a caller that cannot
- *   tell "no such session" from "the node is overloaded" cannot decide what to do
- *   next. Only transport-level problems — unknown route, bad auth, oversized
- *   body — get a real HTTP status.
+ *   `{ok: false, error: {code, ...}}`. The node's own codes survive the trip,
+ *   because a caller that cannot tell "no such session" from "the node is
+ *   overloaded" cannot decide what to do next. Only this service's own boundary
+ *   failures and the auth layer get a real HTTP status.
  * - **Nothing is echoed back that could be a credential.** A node's token is
- *   accepted on the way in (`/api/nodes/add`, `/api/nodes/rotate`) and never
- *   appears in any response, including error responses.
- * - **The surface is disabled unless it is protected.** Loopback-only counts as
- *   protected; a non-loopback bind without a bearer token does not, and the API
- *   is then not installed at all.
+ *   accepted on the way in and never appears in a response.
+ * - **Administration is never free.** There is no localhost exemption: a browser
+ *   needs a session cookie, a machine needs the bearer token, and a request with
+ *   neither gets a 401. The old "loopback means trusted" rule is gone, because the
+ *   deployment is reachable from the LAN and loopback is not a property of the
+ *   person using the browser.
  *
  * @module dsh-coordinator/http-api
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { AuthHttp } from './auth-http.js'
+import { isAuthError, type AdminPrincipal } from './auth.js'
 import { CoordinatorError, failureOf, type RemoteFailure } from './errors.js'
 import { isPlainObject } from './frame-codec.js'
+import { DEFAULT_MAX_BODY_BYTES, readJsonBody, redirect, sendAsset, sendHtml, sendJson } from './http-body.js'
 import { tokensMatch } from './node-registry.js'
 import type { NodeCapabilitySummary, NodeRecord, NodeView } from './protocol.js'
 import type { CreateSessionInput, FollowSessionInput, PromptSessionInput } from './sessions.js'
 import type { RemoteStream } from './stream-hub.js'
-import { isUiPath, readUiHtml } from './ui.js'
+import { parseWindow, type RequestFilter, type UsageQueryParams, type UsageTimezone } from './usage/query.js'
+import { isUiAssetPath, isUiPath, LOGIN_PATH, readLoginHtml, readUiAsset, readUiHtml } from './ui.js'
 
-/** Default ceiling on a request body. */
-export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
+export { DEFAULT_MAX_BODY_BYTES, readJsonBody }
 
 /** The part of the service the HTTP API needs. Structural, so it stays testable. */
 export interface HttpApiHost {
-  /** Where the service is listening; used to decide whether a token is required. */
+  /** Where the service is listening. */
   readonly address: { readonly host: string } | undefined
   listNodes(): readonly NodeView[]
   node(nodeId: string): NodeView | undefined
-  /** The capability surface from the node's last `ready`. */
   capabilitiesOf(nodeId: string): NodeCapabilitySummary | undefined
   stats(): unknown
   invoke(
@@ -57,28 +60,14 @@ export interface HttpApiHost {
     options: { readonly timeoutMs?: number; readonly maxBufferedValues?: number },
   ): RemoteStream
   cancelStream(nodeId: string, streamId: string, reason?: string): void
-  /** Whether the session routes are installed. */
   readonly sessionsEnabled: boolean
-  /**
-   * Whether unknown nodes may enroll right now.
-   *
-   * A **fact**, never a value. There is deliberately no accessor that returns the
-   * secret, so no route can leak one by forgetting to redact it.
-   */
   readonly enrollmentOpen: boolean
-  /** Where state is persisted, or undefined when it is not. */
   readonly stateFile: string | undefined
-  /** Set or clear the enrollment secret. */
   setEnrollmentSecret(secret: string | null): void
-  /** Read-only session list; the request object is the node's own. */
   listSessions(nodeId: string, request?: unknown): Promise<unknown>
-  /** Read-only session page; the request object is the node's own. */
   pageSessions(nodeId: string, request?: unknown): Promise<unknown>
-  /** Create a session on a node. */
   createSession(nodeId: string, input?: CreateSessionInput): Promise<unknown>
-  /** Send a message to a session. This really runs a turn on the node. */
   promptSession(nodeId: string, input: PromptSessionInput): Promise<unknown>
-  /** Follow a session's events as a stream. */
   followSession(
     nodeId: string,
     input?: FollowSessionInput,
@@ -88,40 +77,60 @@ export interface HttpApiHost {
   restoreNode(nodeId: string): NodeView
   rotateNodeToken(nodeId: string, token: string): NodeView
   addNode(record: NodeRecord): NodeView
+  /** Whether management state is on disk. */
+  readonly persistenceEnabled?: boolean
+  /** Usage reads, when the database is available. */
+  readonly usage?: UsageApiHost | undefined
+}
+
+/** The usage read methods the API forwards to. */
+export interface UsageApiHost {
+  summary(params: UsageQueryParams): unknown
+  nodesReport(
+    params: UsageQueryParams,
+    sort: 'knownTokens' | 'requestCount' | 'nodeName',
+    order: 'asc' | 'desc',
+    page: number,
+    pageSize: number,
+  ): unknown
+  series(params: UsageQueryParams, grain: 'hour' | 'day'): unknown
+  requests(filter: RequestFilter, limit: number, cursor: string | undefined): unknown
+  status(nodeId: string | undefined): unknown
 }
 
 /** Options for {@link createHttpApi}. */
 export interface HttpApiOptions {
-  /** Bearer token required for every request when set. */
+  /** Bearer token required for machine clients when set. */
   readonly token?: string
   /** Read the bearer token at request time, for a token configured after startup. */
   readonly getToken?: () => string | undefined
-  /** Set the bearer token from the localhost bootstrap route. */
+  /** Set the bearer token. */
   readonly setToken?: (token: string) => void
   /** Whether the API is installed at all. Defaults to true. */
   readonly enabled?: boolean
-  /** Serve the bundled UI page at `/ui`. Defaults to true. */
+  /** Serve the bundled console at `/ui`. Defaults to true. */
   readonly ui?: boolean
-  /** Body ceiling. Defaults to {@link DEFAULT_MAX_BODY_BYTES}. */
+  /** Body ceiling. */
   readonly maxBodyBytes?: number
   /** Diagnostics sink; never receives a request body or a credential. */
   readonly onRequest?: (info: { readonly method: string; readonly path: string; readonly status: number }) => void
+  /** Browser authentication. Absent only for an embedder with no database. */
+  readonly auth?: AuthHttp
+  /** Whether a persistent database backs this service. */
+  readonly persistenceEnabled?: boolean
 }
 
 /** An HTTP handler plus its own metadata. */
 export interface HttpApi {
-  /** Handle one request. Never throws. */
   handle(request: IncomingMessage, response: ServerResponse): void
-  /** Whether a bearer token is required. */
   readonly requiresToken: boolean
 }
 
 /**
  * Whether a socket address is on this machine.
  *
- * Node reports an IPv4-mapped IPv6 form (`::ffff:127.0.0.1`) when a dual-stack
- * listener accepts an IPv4 connection, so a naive `=== '127.0.0.1'` would treat a
- * local browser as remote and lock the operator out of their own UI.
+ * Kept because callers and tests use it for diagnostics, but no longer used to
+ * grant access: the console reports it, the authorizer does not consult it.
  * @param address - `request.socket.remoteAddress`.
  * @returns true for any loopback form.
  */
@@ -132,28 +141,26 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 }
 
 /**
- * Whether the operator API should be reachable from other machines.
+ * Whether the operator API has a machine credential at all.
  *
- * The old rule was all-or-nothing: a non-loopback bind without a token did not
- * install the API at all. That conflated two decisions an operator makes
- * separately — "may other machines join as nodes" (a bind-address question) and
- * "may other machines administer this" (a much bigger one) — and the only way to
- * get the first was to accept the second.
- *
- * The rule now: the API is always installed and **fenced to this machine** unless
- * a bearer token exists to protect it. A wildcard bind therefore invites nodes
- * without inviting administrators, which is the shape most deployments want.
+ * Retained for the startup banner. It no longer decides whether remote callers are
+ * allowed: only a valid credential does.
  * @param options - the configured bearer token, if any.
- * @returns whether non-loopback callers may use the API.
+ * @returns whether a token exists.
  */
 export function allowsRemoteApi(options: { readonly token?: string | undefined }): boolean {
   return options.token !== undefined && options.token !== ''
 }
 
+/** Which human or machine is calling. */
+type ResolvedPrincipal =
+  | { readonly kind: 'admin'; readonly principal: AdminPrincipal }
+  | { readonly kind: 'operator' }
+
 /**
  * Build the operator API.
  * @param host - the service it drives.
- * @param options - token, size ceiling, and diagnostics hook.
+ * @param options - auth, token, size ceiling, and diagnostics hook.
  * @returns the handler.
  */
 export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): HttpApi {
@@ -162,11 +169,12 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
   const getToken = options.getToken ?? (() => initialToken)
   const enabled = options.enabled ?? true
   const ui = (options.ui ?? true) && enabled
+  const auth = options.auth
 
   const handle = (request: IncomingMessage, response: ServerResponse): void => {
     void handleAsync(request, response).catch((error: unknown) => {
-      // Last line of defence: a bug in a route must not kill the listener.
-      sendJson(response, 500, { ok: false, error: failureOf(error) })
+      const failure = failureOf(error)
+      sendJson(response, statusFor(failure), { ok: false, error: failure })
     })
   }
 
@@ -187,86 +195,164 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
       finish(404)
       return
     }
-    /*
-      Fence administration to this machine unless a token protects it.
 
-      This is the counterpart to the `/node` endpoint staying open on every
-      interface: joining as a node and administering the Coordinator are different
-      privileges, and a wildcard bind should grant only the first. Without a token
-      there is nothing to authenticate a remote administrator with, so the honest
-      answer is to refuse rather than to serve them.
+    // --- pages ------------------------------------------------------------
+    if (method === 'GET' && path === '/') {
+      const authenticated = auth?.session(request) !== undefined
+      redirect(response, authenticated ? '/ui' : LOGIN_PATH)
+      finish(303)
+      return
+    }
+    if (ui && method === 'GET' && path === LOGIN_PATH) {
+      if (auth === undefined) {
+        /*
+          No database means no place to keep an administrator.
 
-      **Before the page and before routing.** The page is part of administration —
-      serving it to a remote caller would load a console whose every call fails,
-      which reads as a broken service rather than a refused one. And checking before
-      routing means a remote caller learns nothing about which routes exist; a 404
-      per route would leak the surface a little at a time.
-    */
-    const token = normaliseToken(getToken())
-    const loopback = isLoopbackAddress(request.socket?.remoteAddress)
-    if (!allowsRemoteApi({ token }) && !loopback) {
-      sendJson(response, 403, {
+          The contract is explicit that this mode must not invent an anonymous
+          bootstrap just to make the page work: it says so instead and returns 503,
+          which is the same answer `/api/auth/*` gives below.
+        */
+        response.writeHead(503, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+        })
+        response.end(
+          '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+          + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+          + '<title>管理登录不可用 · DSH Coordinator</title>'
+          + '<link rel="stylesheet" href="/ui/console.css"></head><body class="u-page">'
+          + '<div class="u-login-wrap"><div class="u-login-card">'
+          + '<h1>管理登录不可用</h1>'
+          + '<p class="u-login-sub">当前 Coordinator 以 --no-state-file 运行。</p>'
+          + '<div class="u-alert u-on u-info">管理登录需要持久化数据库：请用 --db-file 启动，'
+          + '并在服务器上初始化管理员。此模式只保留显式 Bearer 的机器 API 与临时节点登记。</div>'
+          + '</div></div></body></html>',
+        )
+        finish(503)
+        return
+      }
+      if (auth.session(request) !== undefined) {
+        redirect(response, '/ui')
+        finish(303)
+        return
+      }
+      await serveFile(response, path, finish)
+      return
+    }
+    if (ui && method === 'GET' && (isUiPath(path) || isUiAssetPath(path))) {
+      /*
+        The console *page* is administration; its assets are not.
+
+        The sign-in page needs the same stylesheet and the same usage script, and it
+        is served anonymously — so gating the assets would mean either a flash of
+        unstyled HTML or a second copy of the CSS. Both files are inert without a
+        page and contain no data; the page itself still requires a session.
+      */
+      if (auth !== undefined && isUiPath(path) && auth.session(request) === undefined) {
+        redirect(response, LOGIN_PATH)
+        finish(303)
+        return
+      }
+      await serveFile(response, path, finish)
+      return
+    }
+
+    // --- health: anonymous, but says nothing worth knowing -------------------
+    if (method === 'GET' && path === '/api/health') {
+      sendJson(response, 200, { ok: true, value: { listening: host.address !== undefined } })
+      finish(200)
+      return
+    }
+
+    // --- auth routes --------------------------------------------------------
+    if (auth === undefined && path.startsWith('/api/auth/')) {
+      sendJson(response, 503, {
         ok: false,
         error: {
-          code: 'coordinator/auth-rejected',
-          message: 'the operator API answers only this machine; start the Coordinator with --api-token to administer it remotely',
+          code: 'coordinator/auth-uninitialized',
+          message: 'management login needs a persistent database; start with --db-file and run admin init',
           details: {},
         },
       })
-      finish(403)
+      finish(503)
       return
     }
-    // The page is served **before** the token check, and that is not an oversight:
-    // a browser navigation cannot carry an `Authorization` header, so a gated page
-    // would simply never load. The page contains no credential; every call it makes
-    // back into `/api/*` still has to pass the check below, which is why it asks the
-    // operator for the token as soon as one of those calls comes back 401. On a
-    // loopback request there is no token to ask for, so it never has to.
-    if (ui && method === 'GET' && isUiPath(path)) {
-      if (!loopback) {
-        sendJson(response, 403, {
-          ok: false,
-          error: {
-            code: 'coordinator/auth-rejected',
-            message: 'the Coordinator test UI is available only on localhost',
-            details: {},
-          },
-        })
-        finish(403)
+    if (auth !== undefined && path.startsWith('/api/auth/')) {
+      try {
+        const handled = await auth.handle(request, response, method, path, maxBodyBytes)
+        if (handled) finish(response.statusCode)
+        return
+      } catch (error) {
+        const failure = failureOf(error)
+        const status = statusFor(failure)
+        if (isAuthError(error) && error.retryAfterSeconds !== undefined) {
+          response.setHeader('retry-after', String(error.retryAfterSeconds))
+        }
+        if (status === 401) response.setHeader('www-authenticate', 'Cookie')
+        sendJson(response, status, { ok: false, error: failure })
+        finish(status)
         return
       }
+    }
+
+    // --- authorization ------------------------------------------------------
+    /*
+      A path outside `/api` that reached this point is not a route at all.
+
+      Answered before the credential check on purpose: a 401 for `/favicon.ico`
+      would tell a browser there is something protected at that path.
+    */
+    if (!path.startsWith('/api/') && path !== '/api') {
+      sendJson(response, 404, { ok: false, error: notFound(path) })
+      finish(404)
+      return
+    }
+
+    let principal: ResolvedPrincipal
+    try {
+      principal = authorize(request, auth, getToken)
+    } catch (error) {
+      const failure = failureOf(error)
+      const status = statusFor(failure)
+      if (status === 401) response.setHeader('www-authenticate', 'Bearer')
+      sendJson(response, status, { ok: false, error: failure })
+      finish(status)
+      return
+    }
+
+    // A cookie-authenticated write is a browser action, so it needs both an exact
+    // Origin and the session's CSRF token. A bearer caller is not a browser and has
+    // already proven possession of a secret.
+    if (principal.kind === 'admin' && method !== 'GET' && method !== 'HEAD') {
       try {
-        const html = await readUiHtml()
-        sendHtml(response, html)
-        finish(200)
+        auth?.assertCookieWrite(request, principal.principal)
       } catch (error) {
-        sendJson(response, 500, { ok: false, error: failureOf(error) })
-        finish(500)
+        const failure = failureOf(error)
+        const status = statusFor(failure)
+        sendJson(response, status, { ok: false, error: failure })
+        finish(status)
+        return
       }
-      return
     }
-    if (token !== undefined && !authorized(request, token)) {
-      response.setHeader('www-authenticate', 'Bearer')
-      sendJson(response, 401, {
-        ok: false,
-        error: { code: 'coordinator/auth-rejected', message: 'a bearer token is required', details: {} },
-      })
-      finish(401)
-      return
-    }
+
     try {
       const status = await route(host, request, response, method, path, url, maxBodyBytes, {
+        principal,
         getToken,
+        // A long-lived stream opened by a browser must stop when that browser's
+        // session ends — otherwise "log out" would leave a live feed running in a
+        // tab that can no longer administer anything.
+        ...(principal.kind === 'admin' && auth !== undefined
+          ? { streamGuard: () => auth.sessionAlive(principal.principal.sessionId) }
+          : {}),
         ...(options.setToken === undefined ? {} : { setToken: options.setToken }),
       })
       finish(status)
     } catch (error) {
       const failure = failureOf(error)
       // A failure the **node** reported is data, not an HTTP-level error: the call
-      // did reach the node, its own code is what the caller has to branch on, and
-      // a 5xx would throw that code away. Only this service's own boundary
-      // failures map onto a status.
-      const status = failure.code.startsWith('coordinator/') ? statusFor(failure) : 200
+      // did reach the node, its own code is what the caller has to branch on.
+      const status = isBoundaryFailure(failure.code) ? statusFor(failure) : 200
       sendJson(response, status, { ok: false, error: failure })
       finish(status)
     }
@@ -280,6 +366,56 @@ export function createHttpApi(host: HttpApiHost, options: HttpApiOptions = {}): 
   }
 }
 
+/** Serve one whitelisted UI file. */
+async function serveFile(response: ServerResponse, path: string, finish: (status: number) => void): Promise<void> {
+  try {
+    if (isUiPath(path)) {
+      sendHtml(response, await readUiHtml())
+    } else if (path === LOGIN_PATH) {
+      sendHtml(response, await readLoginHtml())
+    } else {
+      sendAsset(response, path, await readUiAsset(path))
+    }
+    finish(200)
+  } catch (error) {
+    sendJson(response, 500, { ok: false, error: failureOf(error) })
+    finish(500)
+  }
+}
+
+/**
+ * Decide who is calling, or refuse.
+ *
+ * An `Authorization` header means "machine client" and is never allowed to fall
+ * back to the cookie: a caller that presents a bad bearer token has told us which
+ * credential it meant to use, and quietly using a different one would hide the bug
+ * that produced the bad token.
+ */
+function authorize(
+  request: IncomingMessage,
+  auth: AuthHttp | undefined,
+  getToken: () => string | undefined,
+): ResolvedPrincipal {
+  const header = request.headers.authorization
+  if (typeof header === 'string' && header.trim() !== '') {
+    const token = normaliseToken(getToken())
+    const match = /^Bearer\s+(.+)$/iu.exec(header.trim())
+    if (token === undefined || match === null || !tokensMatch(token, (match[1] as string).trim())) {
+      throw new CoordinatorError('coordinator/auth-rejected', 'the bearer token is not valid', {})
+    }
+    return { kind: 'operator' }
+  }
+  const principal = auth?.session(request)
+  if (principal !== undefined) return { kind: 'admin', principal }
+  throw new CoordinatorError(
+    'coordinator/auth-required',
+    auth === undefined
+      ? 'this API requires a bearer token'
+      : 'sign in at /login, or send a bearer token',
+    {},
+  )
+}
+
 /** Route one request. Returns the HTTP status that was sent. */
 async function route(
   host: HttpApiHost,
@@ -289,8 +425,105 @@ async function route(
   path: string,
   url: URL,
   maxBodyBytes: number,
-  operatorToken: { readonly getToken: () => string | undefined; readonly setToken?: (token: string) => void },
+  context: {
+    readonly principal: ResolvedPrincipal
+    readonly getToken: () => string | undefined
+    readonly streamGuard?: () => boolean
+    readonly setToken?: (token: string) => void
+  },
 ): Promise<number> {
+  const adminOnly = (): void => {
+    if (context.principal.kind !== 'admin') {
+      throw new CoordinatorError(
+        'coordinator/auth-rejected',
+        'this route changes management credentials and requires a browser administrator session',
+        {},
+      )
+    }
+  }
+
+  // ------------------------------------------------------------- usage reads
+
+  if (path.startsWith('/api/usage/')) {
+    const usage = host.usage
+    if (usage === undefined) {
+      throw new CoordinatorError(
+        'coordinator/storage-unavailable',
+        'usage reporting needs a persistent database',
+        {},
+      )
+    }
+    const params: UsageQueryParams = {
+      from: url.searchParams.get('from'),
+      to: url.searchParams.get('to'),
+      timezone: url.searchParams.get('timezone'),
+      nodeId: url.searchParams.get('nodeId'),
+    }
+    if (path === '/api/usage/summary' && method === 'GET') {
+      sendJson(response, 200, { ok: true, value: usage.summary(params) })
+      return 200
+    }
+    if (path === '/api/usage/nodes' && method === 'GET') {
+      const sort = url.searchParams.get('sort') ?? 'knownTokens'
+      if (sort !== 'knownTokens' && sort !== 'requestCount' && sort !== 'nodeName') {
+        throw new CoordinatorError('coordinator/invalid-arguments', '"sort" must be knownTokens, requestCount or nodeName', {})
+      }
+      const order = url.searchParams.get('order') ?? 'desc'
+      if (order !== 'asc' && order !== 'desc') {
+        throw new CoordinatorError('coordinator/invalid-arguments', '"order" must be asc or desc', {})
+      }
+      const page = integerParam(url, 'page', 1, 1, 1_000_000)
+      const pageSize = integerParam(url, 'pageSize', 20, 1, 100)
+      sendJson(response, 200, { ok: true, value: usage.nodesReport(params, sort, order, page, pageSize) })
+      return 200
+    }
+    if (path === '/api/usage/series' && method === 'GET') {
+      const grain = url.searchParams.get('grain') ?? 'day'
+      if (grain !== 'hour' && grain !== 'day') {
+        throw new CoordinatorError('coordinator/invalid-arguments', '"grain" must be hour or day', {})
+      }
+      sendJson(response, 200, { ok: true, value: usage.series(params, grain) })
+      return 200
+    }
+    if (path === '/api/usage/requests' && method === 'GET') {
+      const window = parseWindow(params, Date.now())
+      const usageFilter = url.searchParams.get('usage') ?? 'all'
+      if (usageFilter !== 'all' && usageFilter !== 'reported' && usageFilter !== 'missing') {
+        throw new CoordinatorError('coordinator/invalid-arguments', '"usage" must be all, reported or missing', {})
+      }
+      const provider = url.searchParams.get('provider')
+      const model = url.searchParams.get('model')
+      const state = url.searchParams.get('state')
+      if (state !== null && !['running', 'completed', 'failed', 'cancelled', 'process_interrupted'].includes(state)) {
+        throw new CoordinatorError('coordinator/invalid-arguments', '"state" is not a known attempt state', { state })
+      }
+      const limit = integerParam(url, 'limit', 20, 1, 100)
+      const filter: RequestFilter = {
+        ...window,
+        ...(params.nodeId === null || params.nodeId === '' ? {} : { nodeId: params.nodeId }),
+        ...(provider === null || provider === '' ? {} : { provider }),
+        ...(model === null || model === '' ? {} : { model }),
+        ...(state === null || state === '' ? {} : { state }),
+        usage: usageFilter as 'all' | 'reported' | 'missing',
+      }
+      const cursor = url.searchParams.get('cursor') ?? undefined
+      sendJson(response, 200, { ok: true, value: usage.requests(filter, limit, cursor) })
+      return 200
+    }
+    if (path === '/api/usage/status' && method === 'GET') {
+      const nodeId = params.nodeId === null || params.nodeId === '' ? undefined : params.nodeId
+      sendJson(response, 200, { ok: true, value: usage.status(nodeId) })
+      return 200
+    }
+    sendJson(response, 405, {
+      ok: false,
+      error: { code: 'coordinator/invalid-arguments', message: `${path} does not accept ${method}`, details: { path } },
+    })
+    return 405
+  }
+
+  // ---------------------------------------------------------------- reads
+
   if (method === 'GET' && path === '/api/stats') {
     sendJson(response, 200, { ok: true, value: host.stats() })
     return 200
@@ -317,34 +550,23 @@ async function route(
     sendJson(response, 200, { ok: true, value: summary })
     return 200
   }
-  if (method === 'GET' && path === '/api/health') {
-    sendJson(response, 200, { ok: true, value: { listening: host.address !== undefined } })
-    return 200
-  }
 
   // ------------------------------------------------------- operator credential
 
   if (path === '/api/operator-token') {
-    // The Coordinator UI is intentionally a localhost-only bootstrap surface.
-    // A bearer token may make the rest of the API remotely usable, but it does
-    // not turn this setup endpoint into a remote credential-management API.
-    if (!isLoopbackAddress(request.socket?.remoteAddress)) {
-      sendJson(response, 403, {
-        ok: false,
-        error: {
-          code: 'coordinator/auth-rejected',
-          message: 'the operator token can only be configured from localhost',
-          details: {},
-        },
-      })
-      return 403
-    }
+    /*
+      Both credentials may configure the machine token, but never a password.
+
+      Rotating this token is what a machine client does to itself; changing the
+      administrator account is what only a browser session may do, and that is
+      enforced on `/api/auth/password`, not here.
+    */
     if (method === 'GET') {
       sendJson(response, 200, {
         ok: true,
         value: {
-          configured: normaliseToken(operatorToken.getToken()) !== undefined,
-          persisted: host.stateFile !== undefined,
+          configured: normaliseToken(context.getToken()) !== undefined,
+          persisted: host.persistenceEnabled === true,
         },
       })
       return 200
@@ -356,7 +578,7 @@ async function route(
       })
       return 405
     }
-    if (operatorToken.setToken === undefined) {
+    if (context.setToken === undefined) {
       sendJson(response, 404, { ok: false, error: notFound(path) })
       return 404
     }
@@ -367,10 +589,10 @@ async function route(
         field: 'token',
       })
     }
-    operatorToken.setToken(token)
+    context.setToken(token)
     sendJson(response, 200, {
       ok: true,
-      value: { configured: true, persisted: host.stateFile !== undefined },
+      value: { configured: true, persisted: host.persistenceEnabled === true },
     })
     return 200
   }
@@ -379,15 +601,11 @@ async function route(
 
   if (path === '/api/enrollment') {
     if (method === 'GET') {
-      // `open` plus where it is remembered. Never the secret: a caller that could
-      // read it back could not tell a legitimate operator from anyone else who
-      // reached this port.
       sendJson(response, 200, {
         ok: true,
         value: {
           open: host.enrollmentOpen,
-          persisted: host.stateFile !== undefined,
-          ...(host.stateFile === undefined ? {} : { stateFile: host.stateFile }),
+          persisted: host.persistenceEnabled === true,
         },
       })
       return 200
@@ -409,10 +627,9 @@ async function route(
       )
     }
     host.setEnrollmentSecret(raw as string | null)
-    // Answer with the resulting state, not with what was sent.
     sendJson(response, 200, {
       ok: true,
-      value: { open: host.enrollmentOpen, persisted: host.stateFile !== undefined },
+      value: { open: host.enrollmentOpen, persisted: host.persistenceEnabled === true },
     })
     return 200
   }
@@ -476,7 +693,7 @@ async function route(
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       ...(maxBufferedValues === undefined ? {} : { maxBufferedValues }),
     })
-    return await streamToClient(host, nodeId, stream, response)
+    return await streamToClient(host, nodeId, stream, response, context.streamGuard)
   }
 
   if (path.startsWith('/api/') && method !== 'POST') {
@@ -509,7 +726,7 @@ async function route(
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       ...(maxBufferedValues === undefined ? {} : { maxBufferedValues }),
     })
-    return await streamToClient(host, nodeId, stream, response)
+    return await streamToClient(host, nodeId, stream, response, context.streamGuard)
   }
 
   if (method === 'POST' && path === '/api/nodes/add') {
@@ -571,6 +788,7 @@ async function streamToClient(
   nodeId: string,
   stream: RemoteStream,
   response: ServerResponse,
+  streamGuard?: () => boolean,
 ): Promise<number> {
   response.writeHead(200, {
     'content-type': 'application/x-ndjson; charset=utf-8',
@@ -581,9 +799,28 @@ async function streamToClient(
   response.on('close', () => {
     if (response.writableEnded) return
     clientGone = true
-    // The consumer left; stop the node producing into a socket nobody reads.
     host.cancelStream(nodeId, stream.streamId, 'the HTTP client disconnected')
   })
+
+  /*
+    Check the session independently of the data flow.
+
+    Waiting for the next chunk would leave an idle stream running long after the
+    session it belongs to is gone; the check has to be on its own clock.
+  */
+  const watchdog = streamGuard === undefined
+    ? undefined
+    : setInterval(() => {
+      if (clientGone || streamGuard()) return
+      clientGone = true
+      host.cancelStream(nodeId, stream.streamId, 'the administrator session ended')
+      try {
+        response.destroy()
+      } catch {
+        // Already closed.
+      }
+    }, 30_000)
+  watchdog?.unref?.()
 
   const write = (chunk: unknown): boolean => {
     if (clientGone || response.writableEnded) return false
@@ -603,40 +840,25 @@ async function streamToClient(
     }
     write({ type: 'end', count: stream.count })
   } catch (error) {
-    // A stream failure is reported inside the NDJSON body: the status line is
-    // already sent, and a mid-stream failure is not an HTTP-level failure.
     write({ type: 'error', error: failureOf(error), count: stream.count })
+  } finally {
+    if (watchdog !== undefined) clearInterval(watchdog)
   }
   if (!response.writableEnded) response.end()
   return 200
 }
 
-/** Read and parse a JSON body, refusing anything oversized or not an object. */
-export async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  let bytes = 0
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
-    bytes += buffer.byteLength
-    if (bytes > maxBodyBytes) {
-      throw new CoordinatorError('coordinator/frame-too-large', `the request body exceeds ${maxBodyBytes} bytes`, {
-        maxBodyBytes,
-      })
-    }
-    chunks.push(buffer)
+/** Parse one bounded integer query parameter. */
+function integerParam(url: URL, name: string, fallback: number, min: number, max: number): number {
+  const raw = url.searchParams.get(name)
+  if (raw === null || raw === '') return fallback
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new CoordinatorError('coordinator/invalid-arguments', `"${name}" must be an integer between ${min} and ${max}`, {
+      field: name,
+    })
   }
-  const text = Buffer.concat(chunks).toString('utf8').trim()
-  if (text === '') return {}
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    throw new CoordinatorError('coordinator/invalid-arguments', 'the request body is not valid JSON', {})
-  }
-  if (!isPlainObject(parsed)) {
-    throw new CoordinatorError('coordinator/invalid-arguments', 'the request body must be a JSON object', {})
-  }
-  return parsed
+  return value
 }
 
 function normaliseToken(token: string | undefined): string | undefined {
@@ -645,22 +867,26 @@ function normaliseToken(token: string | undefined): string | undefined {
   return trimmed === '' ? undefined : trimmed
 }
 
-function authorized(request: IncomingMessage, token: string): boolean {
-  const header = request.headers.authorization
-  if (typeof header !== 'string') return false
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim())
-  if (match === null) return false
-  return tokensMatch(token, (match[1] as string).trim())
+/** Whether a failure code belongs to this service rather than to a node. */
+function isBoundaryFailure(code: string): boolean {
+  return code.startsWith('coordinator/') || code.startsWith('usage/')
 }
 
 /** Map a failure onto an HTTP status. */
-function statusFor(failure: RemoteFailure): number {
+function statusFor(failure: { readonly code: string }): number {
   switch (failure.code) {
-    case 'coordinator/invalid-arguments':
-    case 'coordinator/protocol-invalid':
-      return 400
+    case 'coordinator/auth-required':
     case 'coordinator/auth-rejected':
       return 401
+    case 'coordinator/auth-uninitialized':
+      return 503
+    case 'coordinator/auth-rate-limited':
+      return 429
+    case 'coordinator/auth-invalid-request':
+    case 'coordinator/invalid-arguments':
+    case 'coordinator/protocol-invalid':
+    case 'usage/contract-invalid':
+      return 400
     case 'coordinator/node-unknown':
       return 404
     case 'coordinator/node-offline':
@@ -673,100 +899,16 @@ function statusFor(failure: RemoteFailure): number {
     case 'coordinator/stream-limit':
     case 'coordinator/request-limit':
       return 429
+    case 'coordinator/storage-unavailable':
+    case 'coordinator/sqlite-unavailable':
+    case 'coordinator/schema-too-new':
+      return 500
+    case 'usage/collector-fork':
+    case 'usage/sequence-gap':
+    case 'usage/collector-mismatch':
+      return 502
     default:
       return 502
-  }
-}
-
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  if (response.writableEnded) return
-  const text = JSON.stringify(body)
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(text, 'utf8'),
-    'cache-control': 'no-store',
-  })
-  response.end(text)
-}
-
-function sendHtml(response: ServerResponse, html: string): void {
-  if (response.writableEnded) return
-  response.writeHead(200, {
-    'content-type': 'text/html; charset=utf-8',
-    'content-length': Buffer.byteLength(html, 'utf8'),
-    // The page is an operator console, not a document: it should never be served
-    // from a cache while the service it drives has moved on.
-    'cache-control': 'no-store',
-  })
-  response.end(html)
-}
-
-/**
- * Read the create-session fields.
- *
- * Written with local variables rather than repeated reads of the body: the body is
- * `unknown`-valued, so every access needs its own narrowing, and calling the same
- * reader twice per field is how a "present" check and a value end up disagreeing.
- */
-function createInput(body: Record<string, unknown>): CreateSessionInput {
-  const cwd = optionalString(body, 'cwd')
-  const workspaceId = optionalString(body, 'workspaceId')
-  const sessionId = optionalString(body, 'sessionId')
-  const agentPreset = optionalString(body, 'agentPreset')
-  return {
-    ...(cwd === undefined ? {} : { cwd }),
-    ...(workspaceId === undefined ? {} : { workspaceId }),
-    ...(sessionId === undefined ? {} : { sessionId }),
-    ...(agentPreset === undefined ? {} : { agentPreset }),
-    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
-  }
-}
-
-/** Read the prompt fields. `text` is the convenience; `content` bypasses it. */
-function promptInput(body: Record<string, unknown>): PromptSessionInput {
-  const content = body['content']
-  if (content !== undefined && !Array.isArray(content)) {
-    throw new CoordinatorError('coordinator/invalid-arguments', '"content" must be an array when present', {
-      field: 'content',
-    })
-  }
-  const sessionId = optionalString(body, 'sessionId')
-  const text = optionalString(body, 'text')
-  const mode = optionalString(body, 'mode')
-  if (mode !== undefined && mode !== 'queue' && mode !== 'steer') {
-    throw new CoordinatorError('coordinator/invalid-arguments', '"mode" must be "queue" or "steer"', {
-      field: 'mode',
-    })
-  }
-  const requestId = optionalString(body, 'requestId')
-  const clientTimeZone = optionalString(body, 'clientTimeZone')
-  return {
-    ...(sessionId === undefined ? {} : { sessionId }),
-    ...(text === undefined ? {} : { text }),
-    ...(content === undefined ? {} : { content: content as readonly unknown[] }),
-    ...(mode === undefined ? {} : { mode }),
-    ...(requestId === undefined ? {} : { requestId }),
-    ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
-    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
-  }
-}
-
-/** Read the follow fields. A pre-built `address` wins over `sessionId`. */
-function followInput(body: Record<string, unknown>): FollowSessionInput {
-  const maxMessages = optionalNumber(body, 'maxMessages')
-  const assistantStream = body['assistantStream']
-  if (assistantStream !== undefined && typeof assistantStream !== 'boolean') {
-    throw new CoordinatorError('coordinator/invalid-arguments', '"assistantStream" must be a boolean', {
-      field: 'assistantStream',
-    })
-  }
-  const sessionId = optionalString(body, 'sessionId')
-  return {
-    ...(sessionId === undefined ? {} : { sessionId }),
-    ...(body['address'] === undefined ? {} : { address: optionalObject(body, 'address') }),
-    ...(maxMessages === undefined ? {} : { maxMessages }),
-    ...(assistantStream === undefined ? {} : { assistantStream }),
-    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
   }
 }
 
@@ -843,3 +985,69 @@ function parseViewRequest(raw: string | null): unknown {
   }
   return parsed
 }
+
+/** Read the create-session fields. */
+function createInput(body: Record<string, unknown>): CreateSessionInput {
+  const cwd = optionalString(body, 'cwd')
+  const workspaceId = optionalString(body, 'workspaceId')
+  const sessionId = optionalString(body, 'sessionId')
+  const agentPreset = optionalString(body, 'agentPreset')
+  return {
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(agentPreset === undefined ? {} : { agentPreset }),
+    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
+  }
+}
+
+/** Read the prompt fields. `text` is the convenience; `content` bypasses it. */
+function promptInput(body: Record<string, unknown>): PromptSessionInput {
+  const content = body['content']
+  if (content !== undefined && !Array.isArray(content)) {
+    throw new CoordinatorError('coordinator/invalid-arguments', '"content" must be an array when present', {
+      field: 'content',
+    })
+  }
+  const sessionId = optionalString(body, 'sessionId')
+  const text = optionalString(body, 'text')
+  const mode = optionalString(body, 'mode')
+  if (mode !== undefined && mode !== 'queue' && mode !== 'steer') {
+    throw new CoordinatorError('coordinator/invalid-arguments', '"mode" must be "queue" or "steer"', {
+      field: 'mode',
+    })
+  }
+  const requestId = optionalString(body, 'requestId')
+  const clientTimeZone = optionalString(body, 'clientTimeZone')
+  return {
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(text === undefined ? {} : { text }),
+    ...(content === undefined ? {} : { content: content as readonly unknown[] }),
+    ...(mode === undefined ? {} : { mode }),
+    ...(requestId === undefined ? {} : { requestId }),
+    ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
+  }
+}
+
+/** Read the follow fields. A pre-built `address` wins over `sessionId`. */
+function followInput(body: Record<string, unknown>): FollowSessionInput {
+  const maxMessages = optionalNumber(body, 'maxMessages')
+  const assistantStream = body['assistantStream']
+  if (assistantStream !== undefined && typeof assistantStream !== 'boolean') {
+    throw new CoordinatorError('coordinator/invalid-arguments', '"assistantStream" must be a boolean', {
+      field: 'assistantStream',
+    })
+  }
+  const sessionId = optionalString(body, 'sessionId')
+  return {
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(body['address'] === undefined ? {} : { address: optionalObject(body, 'address') }),
+    ...(maxMessages === undefined ? {} : { maxMessages }),
+    ...(assistantStream === undefined ? {} : { assistantStream }),
+    ...(body['request'] === undefined ? {} : { request: optionalObject(body, 'request') }),
+  }
+}
+
+/** Timezone type re-exported so callers can build the same filter shape. */
+export type { UsageTimezone }

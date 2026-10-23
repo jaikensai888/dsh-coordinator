@@ -15,6 +15,9 @@
 
 import { createServer, type Server } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { AuthService } from './auth.js'
+import { AuthHttp } from './auth-http.js'
+import { openCoordinatorDatabase, type CoordinatorDatabase } from './database.js'
 import { CoordinatorError, type RemoteFailure } from './errors.js'
 import { parseEndpoint, type RawFrameData } from './frame-codec.js'
 import { allowsRemoteApi, createHttpApi, DEFAULT_MAX_BODY_BYTES, isLoopbackAddress, type HttpApi } from './http-api.js'
@@ -32,9 +35,19 @@ import {
   type ResolvedSessionsOptions,
   type SessionsOptions,
 } from './sessions.js'
+import {
+  importLegacyState,
+  loadCoordinatorState,
+  resolveDatabasePaths,
+  saveCoordinatorState,
+  saveOperatorToken,
+} from './state-migration.js'
 import { DEFAULT_MAX_BUFFERED_VALUES, type RemoteStream } from './stream-hub.js'
 import { describeState, readStateFile, resolveStateFile, writeStateFile } from './state-file.js'
 import { systemTimers, type TimerSource } from './timers.js'
+import { UsageQueries } from './usage/query.js'
+import { UsageRepository } from './usage/repository.js'
+import { UsageSync } from './usage/sync.js'
 import type { NodeCapabilitySummary, NodeRecord, NodeView } from './protocol.js'
 
 /** Default TCP port. Deliberately not the node's fake-coordinator port (39471). */
@@ -113,10 +126,35 @@ export interface CoordinatorOptions {
    * Where to persist the registry and the enrollment secret.
    *
    * `undefined` means "no persistence" — the embedder owns it. A string is a path,
-   * resolved by {@link resolveStateFile}. Persistence is what makes a secret set in
-   * the UI survive a restart; see `state-file.ts` for how the file is protected.
+   * resolved by {@link resolveStateFile}.
+   *
+   * **Deprecated for deployment.** This is the legacy JSON path, kept for
+   * embedders that still pass it and for the tests that pin its behaviour. The
+   * CLI uses {@link dbFile}; the two are mutually exclusive, because two writable
+   * sources of truth is the problem the unified database exists to remove.
    */
   readonly stateFile?: string
+  /**
+   * The unified SQLite database.
+   *
+   * When set, node records, the enrollment rule, the operator token, the
+   * administrator, sessions and usage all live here, and {@link stateFile} is
+   * ignored. Relative paths resolve against the working directory, exactly as the
+   * old flag did.
+   */
+  readonly dbFile?: string
+  /** Name the JSON file to import on first start. Requires {@link dbFile}. */
+  readonly migrateStateFile?: string
+  /** An already-open database, for an embedder that owns the lifecycle. */
+  readonly database?: CoordinatorDatabase
+  /** The origin browsers use, e.g. `http://192.168.0.13:8101`. */
+  readonly publicOrigin?: string
+  /** Additional origins treated as same-site for cookie writes. */
+  readonly allowedOrigins?: readonly string[]
+  /** Mark the session cookie `Secure`. Only for an HTTPS front end. */
+  readonly secureCookies?: boolean
+  /** Poll nodes for usage. Defaults to true when a database is configured. */
+  readonly usageSync?: boolean
   /**
    * True when {@link enrollment} came from an explicit command-line flag.
    *
@@ -177,6 +215,14 @@ interface ResolvedOptions {
   maxBodyBytes: number
   /** Absolute path, or undefined when persistence is off. */
   stateFile: string | undefined
+  /** Absolute database path, or undefined when the legacy/no-store mode is used. */
+  dbFile: string | undefined
+  /** Absolute JSON file to import on first start. */
+  legacyFile: string | undefined
+  publicOrigin: string | undefined
+  allowedOrigins: readonly string[]
+  secureCookies: boolean
+  usageSync: boolean
   enrollmentFromCli: boolean
   sessions: ResolvedSessionsOptions
 }
@@ -234,12 +280,51 @@ export class Coordinator {
   #persistChain: Promise<void> = Promise.resolve()
   /** True while a save is queued and has not yet read the registry. */
   #persistQueued = false
+  /** The unified database, when this instance owns one. */
+  #database: CoordinatorDatabase | undefined
+  /** Browser authentication; undefined when there is no database. */
+  #auth: AuthService | undefined
+  #authHttp: AuthHttp | undefined
+  #usageRepository: UsageRepository | undefined
+  #usageQueries: UsageQueries | undefined
+  #usageSync: UsageSync | undefined
 
   /** @param options - listener, registry, and limits. */
   constructor(options: CoordinatorOptions = {}) {
     this.#options = resolveOptions(options)
     this.#apiToken = this.#options.apiToken
     this.#timers = options.timers ?? systemTimers
+
+    /*
+      Open the database before the registry exists.
+
+      The registry's preflight hook writes through `this.#database`, and the
+      constructor seeds the registry with the CLI's records — so a database opened
+      afterwards would miss exactly the records that were configured first.
+    */
+    if (options.database !== undefined) {
+      this.#database = options.database
+    } else if (this.#options.dbFile !== undefined) {
+      this.#database = openCoordinatorDatabase({ file: this.#options.dbFile })
+    }
+    if (this.#database !== undefined) {
+      this.#auth = new AuthService({ db: this.#database.db, now: () => this.#timers.now() })
+      this.#usageRepository = new UsageRepository({ db: this.#database.db, now: () => this.#timers.now() })
+      this.#usageQueries = new UsageQueries({
+        db: this.#database.db,
+        repository: this.#usageRepository,
+        nodes: { list: () => this.#registry.list() },
+        now: () => this.#timers.now(),
+      })
+      this.#usageSync = new UsageSync({
+        repository: this.#usageRepository,
+        invoke: (nodeId, endpoint, args) => this.invoke(nodeId, endpoint, args),
+        isReady: nodeId => this.#registry.isReady(nodeId),
+        timers: this.#timers,
+        ...(options.logger === undefined ? {} : { logger: options.logger }),
+      })
+    }
+
     this.#registry = options.registry ?? new NodeRegistry({
       ...(options.records === undefined ? {} : { records: options.records }),
       ...(options.enrollment === undefined ? {} : { enrollment: options.enrollment }),
@@ -247,6 +332,17 @@ export class Coordinator {
       // handshake, and a save that only ran once the listener was up would miss
       // the very enrollment it exists to remember.
       onStateChanged: () => { this.#persist() },
+      ...(this.#database === undefined
+        ? {}
+        : {
+          beforeStateChange: (next) => {
+            // Synchronous, and before memory changes: a database that cannot write
+            // must not have a token accepted on its behalf.
+            const database = this.#database
+            if (database === undefined) return
+            saveCoordinatorState(database.db, { nodes: next.records, enrollment: next.enrollment })
+          },
+        }),
     })
     const secrets = (): readonly string[] => {
       const policy = this.#registry.enrollmentPolicy
@@ -283,6 +379,31 @@ export class Coordinator {
   /** Where the state file is, or undefined when persistence is off. */
   get stateFile(): string | undefined {
     return this.#options.stateFile
+  }
+
+  /** Whether management state is on disk, which is what enables login and sync. */
+  get persistenceEnabled(): boolean {
+    return this.#database !== undefined || this.#options.stateFile !== undefined
+  }
+
+  /** The unified database, when this instance owns one. */
+  get database(): CoordinatorDatabase | undefined {
+    return this.#database
+  }
+
+  /** Usage reads for the HTTP layer. */
+  get usage(): UsageQueries | undefined {
+    return this.#usageQueries
+  }
+
+  /** Whether an administrator has been created from the server console. */
+  get adminInitialized(): boolean {
+    return this.#auth?.initialized === true
+  }
+
+  /** The database driver actually loaded, for the startup banner. */
+  get sqliteDriver(): string | undefined {
+    return this.#database?.driver
   }
 
   /** Whether the operator API currently has a bearer token configured. */
@@ -354,6 +475,20 @@ export class Coordinator {
    * cost for no correctness gain.
    */
   #persist(): void {
+    const database = this.#database
+    if (database !== undefined) {
+      /*
+        A database writes synchronously, in `beforeStateChange`, so there is
+        nothing left to queue. The one thing this method still owns is the
+        operator token, which is not a registry record.
+      */
+      try {
+        saveOperatorToken(database.db, this.#apiToken)
+      } catch (error) {
+        this.#logger.error('coordinator/state-save-failed', { message: (error as Error).message })
+      }
+      return
+    }
     const file = this.#options.stateFile
     if (file === undefined) return
     if (this.#persistQueued) return
@@ -386,10 +521,57 @@ export class Coordinator {
     await this.#persistChain
   }
 
-  /** Load the persisted state, if there is one, before the listener opens. */
+  /** Load whatever this instance persists, before the listener opens. */
   async #restore(): Promise<void> {
+    const database = this.#database
+    if (database !== undefined) {
+      await this.#restoreFromDatabase(database)
+      return
+    }
     const file = this.#options.stateFile
     if (file === undefined) return
+    await this.#restoreLegacyFile(file)
+  }
+
+  /** Load the persisted state from the unified database. */
+  async #restoreFromDatabase(database: CoordinatorDatabase): Promise<void> {
+    const legacyFile = this.#options.legacyFile
+    if (legacyFile !== undefined) {
+      const outcome = await importLegacyState(database, legacyFile)
+      if (outcome.imported) {
+        this.#logger.info('coordinator/state-migrated', {
+          nodes: outcome.record?.nodes ?? 0,
+          backup: outcome.backupFile ?? 'not-renamed',
+          ...(outcome.backupError === undefined ? {} : { warning: outcome.backupError }),
+        })
+      } else if (outcome.record !== undefined) {
+        // Already migrated. Saying so quietly is useful: a leftover JSON file
+        // beside the database is a common source of "why did my edit do nothing".
+        this.#logger.debug('coordinator/state-already-migrated', { source: outcome.record.source })
+      }
+    }
+
+    const state = loadCoordinatorState(database.db)
+    const storedApiToken = state.apiToken
+    if (this.#apiToken === undefined && storedApiToken !== undefined) this.#apiToken = storedApiToken
+    if (this.#apiToken !== undefined && storedApiToken === undefined) this.#persist()
+
+    for (const record of state.nodes) {
+      if (this.#registry.record(record.nodeId) === undefined) this.#registry.addRecord(record)
+    }
+    if (state.enrollment !== undefined && this.#options.enrollmentFromCli !== true) {
+      this.#registry.setEnrollment(state.enrollment)
+    }
+    this.#logger.info('coordinator/state-loaded', {
+      database: database.file,
+      driver: database.driver,
+      schema: database.schemaVersion,
+      ...describeState(state),
+    })
+  }
+
+  /** Load the persisted state from the legacy JSON file. */
+  async #restoreLegacyFile(file: string): Promise<void> {
     const read = await readStateFile(file)
     if (read.error !== undefined) {
       this.#logger.warn('coordinator/state-unreadable', { file, reason: read.error })
@@ -474,6 +656,16 @@ export class Coordinator {
         without inviting administrators.
       */
       const apiEnabled = this.#options.enableApi ?? true
+      const auth = this.#auth
+      if (auth !== undefined) {
+        this.#authHttp = new AuthHttp({
+          auth,
+          ...(this.#options.publicOrigin === undefined ? {} : { publicOrigin: this.#options.publicOrigin }),
+          allowedOrigins: this.#options.allowedOrigins,
+          secureCookies: this.#options.secureCookies,
+          persistenceEnabled: true,
+        })
+      }
       this.#api = createHttpApi(this, {
         enabled: apiEnabled,
         // The page only knows how to talk about sessions, so a service told not to
@@ -481,6 +673,8 @@ export class Coordinator {
         ui: this.#options.enableUi && this.#options.sessions.enabled,
         getToken: () => this.#apiToken,
         setToken: token => { this.setOperatorToken(token) },
+        persistenceEnabled: this.#database !== undefined,
+        ...(this.#authHttp === undefined ? {} : { auth: this.#authHttp }),
         ...(this.#options.maxBodyBytes === undefined ? {} : { maxBodyBytes: this.#options.maxBodyBytes }),
         onRequest: info => { this.#logger.debug('coordinator/api-request', info) },
       })
@@ -488,13 +682,14 @@ export class Coordinator {
         this.#logger.warn('coordinator/api-disabled', { reason: 'disabled by configuration' })
       } else if (
         !allowsRemoteApi({ ...(this.#apiToken === undefined ? {} : { token: this.#apiToken }) }) &&
+        this.#auth === undefined &&
         !isLoopback(this.#options.host)
       ) {
         // Said once, at startup, because the symptom of getting this wrong is a
-        // 403 from another machine that looks like a firewall problem.
+        // 401 from another machine that looks like a firewall problem.
         this.#logger.info('coordinator/api-fenced', {
           host: this.#options.host,
-          hint: 'the operator API answers only this machine; pass --api-token to allow remote administration',
+          hint: 'no administrator and no operator token: the API answers 401 until one is configured',
         })
       }
 
@@ -556,6 +751,14 @@ export class Coordinator {
     // A queued save that never ran is a secret the operator thinks is persisted.
     // Flushing first also means no write can start after the listeners are gone.
     await this.flushState()
+    /*
+      Stop pulling before the database closes.
+
+      `dispose()` waits for in-flight ingests, which is the difference between a
+      clean shutdown and an ingest that tries to write to a closed handle because
+      it happened to be mid-page.
+    */
+    await this.#usageSync?.dispose()
     const server = this.#server
     const httpServer = this.#httpServer
     this.#server = undefined
@@ -566,6 +769,7 @@ export class Coordinator {
     if (server === undefined || httpServer === undefined) {
       this.#address = undefined
       this.#starting = undefined
+      this.#closeDatabase()
       return
     }
 
@@ -600,7 +804,24 @@ export class Coordinator {
     this.#address = undefined
     this.#starting = undefined
     this.#api = undefined
+    this.#closeDatabase()
     this.#logger.info('coordinator/stopped', { nodes: this.#registry.list().length })
+  }
+
+  /** Close the database this instance owns, once. */
+  #closeDatabase(): void {
+    const database = this.#database
+    if (database === undefined) return
+    this.#database = undefined
+    this.#authHttp = undefined
+    this.#usageSync = undefined
+    this.#usageQueries = undefined
+    this.#usageRepository = undefined
+    try {
+      database.close()
+    } catch (error) {
+      this.#logger.error('coordinator/database-close-failed', { message: (error as Error).message })
+    }
   }
 
   // ---------------------------------------------------------------- node API
@@ -648,6 +869,8 @@ export class Coordinator {
    */
   revokeNode(nodeId: string): NodeView {
     this.#registry.revoke(nodeId)
+    // A revoked node stops contributing history; its existing usage rows stay.
+    this.#usageSync?.stopNode(nodeId)
     this.sessionOf(nodeId)?.close('node/auth-failed', 'the node was revoked by an operator', {
       reconnect: false,
       wsCode: WS_UNAUTHORIZED,
@@ -912,6 +1135,14 @@ export class Coordinator {
       this.#byConnection.set(event.connectionId, key)
       const previous = this.#byNode.get(event.nodeId)
       this.#byNode.set(event.nodeId, key)
+      /*
+        Start pulling usage as soon as a node is ready.
+
+        Started from the connection event rather than from a timer because the
+        first thing a reconnecting node wants to do is hand over its backlog; a
+        fixed poll would add up to ten seconds to every reconnect.
+      */
+      if (this.#options.usageSync) this.#usageSync?.notifyReady(event.nodeId)
       if (previous !== undefined && previous !== key) {
         // Two live connections for one node would make every call's target
         // ambiguous, so the older one is closed on purpose (spec §3.2).
@@ -986,6 +1217,12 @@ function resolveOptions(options: CoordinatorOptions): ResolvedOptions {
       path,
     })
   }
+  const paths = options.dbFile === undefined
+    ? { dbFile: undefined, legacyFile: undefined }
+    : resolveDatabasePaths({
+      dbFile: options.dbFile,
+      ...(options.migrateStateFile === undefined ? {} : { migrateStateFile: options.migrateStateFile }),
+    })
   return {
     port: bound(options.port, DEFAULT_PORT, 0, 65_535),
     host,
@@ -1005,6 +1242,14 @@ function resolveOptions(options: CoordinatorOptions): ResolvedOptions {
     enableUi: options.enableUi ?? true,
     maxBodyBytes: bound(options.maxBodyBytes, DEFAULT_MAX_BODY_BYTES, 1_024, 64 * 1024 * 1024),
     stateFile: options.stateFile === undefined ? undefined : resolveStateFile(options.stateFile),
+    dbFile: paths.dbFile ?? undefined,
+    legacyFile: paths.legacyFile,
+    publicOrigin: options.publicOrigin,
+    allowedOrigins: options.allowedOrigins ?? [],
+    secureCookies: options.secureCookies ?? false,
+    // Sync needs somewhere durable to put the result; without a database there is
+    // nothing to sync into and it stays off.
+    usageSync: options.usageSync ?? paths.dbFile !== undefined,
     enrollmentFromCli: options.enrollmentFromCli ?? false,
     sessions: resolveSessionsOptions(options.sessions),
   }

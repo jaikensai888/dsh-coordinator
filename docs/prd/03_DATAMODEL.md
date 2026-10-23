@@ -3,6 +3,14 @@
 > Coordinator 当前没有数据库。本文描述源码中的内存实体、状态转换和唯一持久化文件。
 > token、enrollment secret 等字段属于凭据，示例只使用占位符。
 
+
+> **2026-10-23 更新**：Coordinator 现在有数据库，不再是“没有数据库”。
+> 权威 schema 为 `src/db-schema.ts`（`schema_migrations` 版本化迁移）：
+> `settings`、`enrollment`、`nodes`、`admin_users`、`admin_sessions`、`auth_audit`、
+> `usage_events`、`usage_attempts`、`usage_sync_state`、`usage_gaps`。
+> Node 侧另有独立的 `usage.sqlite` 队列（`collector_meta`、`attempts`、`outbox`、`coverage_state`）。
+> 本文其余部分描述的是变更前的内存实体与 JSON 文件。
+
 ## 1. 模型边界
 
 Coordinator 的数据分为两类：

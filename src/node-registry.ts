@@ -73,6 +73,18 @@ export interface NodeRegistryOptions {
    * that persisted only the records would restore an allowlist nobody can join.
    */
   readonly onStateChanged?: () => void
+  /**
+   * Called **before** a change is applied, with the state that would result.
+   *
+   * Throwing from here cancels the change, leaving memory exactly as it was. That
+   * is what makes a durable store the source of truth: without it, a failed write
+   * would leave a token accepted by this process and absent from the database,
+   * which is discovered only after a restart, when the node can no longer connect.
+   */
+  readonly beforeStateChange?: (next: {
+    readonly records: readonly NodeRecord[]
+    readonly enrollment: EnrollmentPolicy
+  }) => void
 }
 
 /** Live connection facts the registry tracks per node. */
@@ -122,6 +134,7 @@ export class NodeRegistry {
   readonly #now: () => number
   readonly #onChanged: ((records: readonly NodeRecord[]) => void) | undefined
   readonly #onStateChanged: (() => void) | undefined
+  readonly #beforeStateChange: NodeRegistryOptions['beforeStateChange']
 
   /** @param options - registry configuration. */
   constructor(options: NodeRegistryOptions = {}) {
@@ -130,6 +143,7 @@ export class NodeRegistry {
     this.#now = options.now ?? (() => Date.now())
     this.#onChanged = options.onRecordsChanged
     this.#onStateChanged = options.onStateChanged
+    this.#beforeStateChange = options.beforeStateChange
     for (const record of options.records ?? []) this.addRecord(record)
   }
 
@@ -155,6 +169,9 @@ export class NodeRegistry {
         {},
       )
     }
+    // Durable first: a rule the process applies but the database never saw would
+    // let a node enroll now and fail to reconnect after a restart.
+    this.#beforeStateChange?.({ records: this.records(), enrollment: policy })
     this.#enrollment = policy
     this.#notifyState()
     this.#notify()
@@ -210,6 +227,20 @@ export class NodeRegistry {
       ...(record.nodeName === undefined ? {} : { nodeName: record.nodeName }),
       ...(record.role === undefined ? {} : { role: record.role }),
       ...(record.revokedAt === undefined ? {} : { revokedAt: record.revokedAt }),
+    }
+    /*
+      Durable first, memory second.
+
+      The hook receives the state that *would* exist, so a store that fails leaves
+      this registry untouched. The reverse order was the old behaviour and it is
+      the one bug worth naming: a token accepted in memory but absent from disk is
+      a node that works until the next restart and then cannot connect, with
+      nothing in the log to explain it.
+    */
+    if (this.#beforeStateChange !== undefined) {
+      const candidate = new Map(this.#records)
+      candidate.set(nodeId, stored)
+      this.#beforeStateChange({ records: [...candidate.values()], enrollment: this.#enrollment })
     }
     this.#records.set(nodeId, stored)
     this.#notify()

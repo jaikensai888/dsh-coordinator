@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DSH Coordinator</title>
+<link rel="stylesheet" href="/ui/console.css">
 <!--
   The Coordinator's test console.
 
@@ -921,6 +922,34 @@
     .composer-hint { display: none; }
   }
 </style>
+<!--
+  Header responsiveness, last so it can override the layout above.
+
+  The header predates the usage page and was sized for a wide desktop with three
+  buttons. It now carries a view switch and an account menu as well, so below a wide
+  desktop it has to wrap rather than push the document sideways; the measured widths
+  are 1024, 736 and 320.
+-->
+<style>
+  @media (max-width: 1180px) {
+    header { flex-wrap: wrap; height: auto; min-height: 64px; padding: 8px 14px; row-gap: 8px; gap: 10px; }
+    header .command-field { display: none; }
+    header .brand-lockup { min-width: 0; }
+    /* The status pill is a nicety; the buttons and the view switch are not. */
+    header > #stat { display: none; }
+  }
+  @media (max-width: 900px) {
+    header .header-metrics { display: none; }
+  }
+  @media (max-width: 620px) {
+    header { gap: 8px; padding: 8px 10px; }
+    header button { padding: 6px 9px; }
+    header .account { padding-left: 6px; }
+    header .view-nav button { padding: 6px 8px; }
+    header h1 { font-size: 15px; }
+    header .version { display: none; }
+  }
+</style>
 </head>
 <body>
 
@@ -939,22 +968,19 @@
     <span class="header-metric"><strong id="summary-sessions">0</strong><span>活跃会话</span></span>
   </div>
   <span class="spacer"></span>
+  <nav class="view-nav" aria-label="管理导航">
+    <button id="view-console" type="button" class="nav-active" aria-pressed="true">节点与会话</button>
+    <button id="view-usage" type="button" aria-pressed="false">用量统计</button>
+  </nav>
+  <span class="account">
+    <span class="account-name" id="account-name">—</span>
+    <button id="passwordtoggle" type="button" class="ghost">修改密码</button>
+    <button id="logout" type="button" class="ghost">退出</button>
+  </span>
   <button id="operatortoggle">运营端 token</button>
   <button id="enrolltoggle">节点接入 token</button>
   <button id="refresh">刷新节点</button>
 </header>
-
-<div id="tokenbar">
-  <div class="sheet">
-    <div class="sheet-head"><strong id="tokentitle">该 API 需要运维令牌</strong></div>
-    <div class="hint" id="tokenhint">启动 Coordinator 时 --api-token 的值。</div>
-    <div class="controls">
-      <input id="token" type="password" placeholder="--api-token 的值" autocomplete="off">
-      <button id="settoken" class="primary">保存并使用</button>
-      <button id="cleartoken" class="ghost">清除</button>
-    </div>
-  </div>
-</div>
 
 <div id="operatorbar">
   <div class="sheet">
@@ -999,6 +1025,25 @@
       <input id="enrollinput" type="password" placeholder="新令牌（留空 = 不修改）" autocomplete="off">
       <button id="enrollsave" class="primary">保存</button>
       <button id="enrollclear">禁止新节点连入</button>
+    </div>
+  </div>
+</div>
+
+<div id="passwordbar" role="dialog" aria-modal="true" aria-labelledby="passwordtitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="passwordtitle">修改管理员密码</h2>
+      <span class="spacer"></span>
+      <button id="passwordhide" class="ghost" type="button">关闭</button>
+    </div>
+    <div class="hint">修改成功后所有会话（包括当前这个）会立即失效，需要用新密码重新登录。</div>
+    <div class="error" id="passworderror" role="alert"></div>
+    <input class="u-input" id="currentpassword" type="password" placeholder="当前密码" autocomplete="current-password">
+    <input class="u-input" id="newpassword" type="password" placeholder="新密码（12–128 个字符）" autocomplete="new-password">
+    <input class="u-input" id="newpasswordagain" type="password" placeholder="重复新密码" autocomplete="new-password">
+    <div class="controls">
+      <button id="passwordcancel" class="ghost" type="button">取消</button>
+      <button id="passwordsave" class="primary" type="button">修改密码</button>
     </div>
   </div>
 </div>
@@ -1054,13 +1099,17 @@
   </section>
 </main>
 
+<section id="usage-view" hidden aria-label="用量统计"></section>
+
+<script src="/ui/usage.js" defer></script>
+
 <script>
 'use strict'
 
 // ------------------------------------------------------------------ state
 
 const state = {
-  token: readStoredToken(),
+  view: 'console',
   nodes: [],
   nodeId: null,
   sessionsExpanded: false,
@@ -1166,62 +1215,39 @@ function syncNodeActions () {
   $('newinsession').disabled = !enabled
 }
 
-/** Read the remembered operator token, tolerating storage being unavailable. */
-function readStoredToken () {
-  try {
-    return localStorage.getItem('dsh.coordinator.token') || ''
-  } catch {
-    return ''
-  }
-}
-
 // ------------------------------------------------------------------ api
 
 /**
- * Show the token bar, and say which of the two problems it is.
+ * The CSRF token for this session.
  *
- * "Missing" and "rejected" look identical to a server (both are a 401) and could not
- * be more different to an operator. Reporting both as "a token is required" is how
- * someone sits there retyping a token the server has already refused — and this
- * service has **two** credentials that look alike, so that happened: the enrollment
- * token a node fills in is not the operator token this page wants.
- * @param rejected - true when a token was supplied and the server refused it.
+ * A module-level variable, deliberately not storage: it is derived from the cookie
+ * by the server, it is useless without that cookie, and persisting it would leave a
+ * usable value behind after the session ends.
  */
-function needToken (rejected) {
-  const bar = $('tokenbar')
-  bar.classList.add('on')
-  bar.classList.toggle('rejected', rejected === true)
-  $('tokentitle').textContent = rejected
-    ? '运营端 token 被拒绝 —— 服务器不接受这个值'
-    : '该 API 需要运营端 token'
-  $('tokenhint').textContent = rejected
-    ? '注意：这是 Coordinator 的运营端 token，不是节点连接 Coordinator 使用的 node-token。'
-    : '请输入 Coordinator 的运营端 token；它与节点使用的 node-token 不同。'
-  $('token').focus()
-}
+let csrfToken = ''
 
 /**
  * Call the operator API.
  *
- * Failures arrive as data (`{ok:false,error:{code}}` with HTTP 200) for anything the
- * node reported, so both shapes have to be turned into a throw here — a caller
- * should not have to remember which endpoint reports failure which way.
+ * The browser authenticates with the HttpOnly session cookie, so there is no token
+ * to attach — only the CSRF header on writes. A 401 means the session expired or was
+ * revoked, and the only useful response is to return to the sign-in page.
  */
 async function api (path, body, signal) {
+  const method = body === undefined ? 'GET' : 'POST'
   const headers = { 'content-type': 'application/json' }
-  const sent = state.token !== ''
-  if (sent) headers.authorization = 'Bearer ' + state.token
+  if (method !== 'GET' && csrfToken !== '') headers['x-csrf-token'] = csrfToken
   const response = await fetch(path, {
-    method: body === undefined ? 'GET' : 'POST',
+    method,
     headers,
+    credentials: 'same-origin',
+    cache: 'no-store',
     body: body === undefined ? undefined : JSON.stringify(body),
     ...(signal ? { signal } : {}),
   })
   if (response.status === 401) {
-    // A token was sent and refused: saying "a token is required" again would invite
-    // the operator to retype exactly what was just rejected.
-    needToken(sent)
-    throw new Error(sent ? '运维令牌被服务器拒绝' : '需要运维令牌')
+    window.location.replace('/login')
+    throw new Error('会话已失效，正在返回登录页')
   }
   let payload
   try {
@@ -2420,7 +2446,7 @@ async function openFollow (sessionId) {
   $('chat-state').textContent = '连接中'
 
   const headers = { 'content-type': 'application/json' }
-  if (state.token) headers.authorization = 'Bearer ' + state.token
+  if (csrfToken !== '') headers['x-csrf-token'] = csrfToken
 
   let response
   try {
@@ -2439,7 +2465,7 @@ async function openFollow (sessionId) {
     if (!controller.signal.aborted) note('打开流失败：' + (error.message || error), 'err')
     return
   }
-  if (response.status === 401) { needToken(state.token !== ''); return }
+  if (response.status === 401) { window.location.replace('/login'); return }
   if (!response.ok) {
     note('打开流失败：HTTP ' + response.status, 'err')
     return
@@ -2667,8 +2693,6 @@ async function setOperatorToken () {
   $('operatorsave').disabled = true
   try {
     const result = await api('/api/operator-token', { token: value })
-    state.token = value
-    rememberToken(value)
     $('operatorinput').value = ''
     $('operatorbar').classList.remove('on')
     note('运营端 token 已保存' + (result.persisted ? '，重启后仍然有效' : '（仅内存，重启会丢失）'))
@@ -2730,42 +2754,6 @@ $('text').addEventListener('keydown', event => {
     void send()
   }
 })
-/*
-  Storage is wrapped, not because it usually fails but because of how it fails when
-  it does: `localStorage.setItem` throws in a private window or under a storage
-  policy, and an unguarded throw here would abandon the handler *after* setting the
-  token in memory but *before* hiding the bar and retrying — leaving an operator
-  staring at a prompt that ignores everything they type.
-*/
-function rememberToken (value) {
-  try {
-    if (value === '') localStorage.removeItem('dsh.coordinator.token')
-    else localStorage.setItem('dsh.coordinator.token', value)
-  } catch {
-    note('浏览器拒绝保存令牌（隐私模式或存储被禁用）—— 本次有效，刷新后需要重填。', 'sys')
-  }
-}
-
-$('settoken').onclick = () => {
-  state.token = $('token').value.trim()
-  rememberToken(state.token)
-  $('tokenbar').classList.remove('on', 'rejected')
-  void refreshNodes()
-  void loadEnrollment()
-}
-$('cleartoken').onclick = () => {
-  state.token = ''
-  rememberToken('')
-  $('token').value = ''
-  void refreshNodes()
-}
-$('token').addEventListener('keydown', event => {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    $('settoken').click()
-  }
-})
-$('token').value = state.token
 $('operatorinput').addEventListener('keydown', event => {
   if (event.key === 'Enter') {
     event.preventDefault()
@@ -2804,11 +2792,132 @@ document.addEventListener('keydown', event => {
   }
 })
 
-void loadOperatorToken()
-void refreshNodes()
-void loadEnrollment()
-void loadWebSocketAddress()
-setInterval(() => { void refreshNodes() }, 5000)
+/**
+ * Ask the server who this browser is.
+ *
+ * The page is only served to a session, but a session can end while a tab is open:
+ * this is the same probe the sign-in page uses, and a failure here means "go and
+ * sign in", not "render a console whose every call fails".
+ */
+async function bootstrapSession () {
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+    const body = await response.json()
+    if (!body || body.ok !== true || !body.value || body.value.authenticated !== true) {
+      window.location.replace('/login')
+      return false
+    }
+    csrfToken = typeof body.value.csrfToken === 'string' ? body.value.csrfToken : ''
+    $('account-name').textContent = body.value.user && body.value.user.username ? body.value.user.username : '管理员'
+    return true
+  } catch {
+    window.location.replace('/login')
+    return false
+  }
+}
+
+/** Switch between the session console and the usage console. */
+function showView (view) {
+  state.view = view
+  const usage = view === 'usage'
+  document.querySelector('main').hidden = usage
+  $('usage-view').hidden = !usage
+  $('view-console').classList.toggle('nav-active', !usage)
+  $('view-usage').classList.toggle('nav-active', usage)
+  $('view-console').setAttribute('aria-pressed', String(!usage))
+  $('view-usage').setAttribute('aria-pressed', String(usage))
+  if (usage) {
+    if (window.DshUsage) window.DshUsage.activate()
+  } else if (window.DshUsage) {
+    window.DshUsage.deactivate()
+  }
+}
+
+$('view-console').onclick = () => { showView('console') }
+$('view-usage').onclick = () => { showView('usage') }
+
+/*
+  Keep an actively used session alive — and only an actively used one.
+
+  The server's idle clock moves only for `POST /api/auth/activity`, so this is what
+  stops a working operator from being logged out after thirty minutes. It is bound to
+  real foreground input (keys, clicks, touches), throttled to one request a minute,
+  and deliberately **not** driven by the five-second node poll or the usage refresh:
+  a background timer must not be able to keep a session alive forever.
+*/
+let lastActivityAt = 0
+function reportActivity () {
+  const now = Date.now()
+  if (now - lastActivityAt < 60_000) return
+  lastActivityAt = now
+  void api('/api/auth/activity', {}).catch(() => {
+    // A failed heartbeat is not worth interrupting the operator over; a real
+    // expiry surfaces on the next request as a redirect to /login.
+  })
+}
+for (const event of ['keydown', 'pointerdown', 'touchstart']) {
+  document.addEventListener(event, reportActivity, { passive: true })
+}
+
+/** Sign out: revoke the server session, then leave the page. */
+$('logout').onclick = async () => {
+  try {
+    await api('/api/auth/logout', {})
+  } catch {
+    // Already gone; the redirect below is the outcome either way.
+  }
+  window.location.replace('/login')
+}
+
+/** Show the change-password dialog. */
+$('passwordtoggle').onclick = () => {
+  $('passworderror').classList.remove('on')
+  $('currentpassword').value = ''
+  $('newpassword').value = ''
+  $('newpasswordagain').value = ''
+  $('passwordbar').classList.add('on')
+  $('currentpassword').focus()
+}
+
+/** Hide it, clearing every field so a password never outlives the dialog. */
+function closePassword () {
+  $('passwordbar').classList.remove('on')
+  $('currentpassword').value = ''
+  $('newpassword').value = ''
+  $('newpasswordagain').value = ''
+}
+
+$('passwordhide').onclick = closePassword
+$('passwordcancel').onclick = closePassword
+$('passwordsave').onclick = async () => {
+  const error = $('passworderror')
+  error.classList.remove('on')
+  const current = $('currentpassword').value
+  const next = $('newpassword').value
+  const again = $('newpasswordagain').value
+  if (next !== again) {
+    error.textContent = '两次输入的新密码不一致。'
+    error.classList.add('on')
+    return
+  }
+  try {
+    await api('/api/auth/password', { currentPassword: current, newPassword: next })
+    closePassword()
+    window.location.replace('/login')
+  } catch (failure) {
+    error.textContent = failure && failure.message ? failure.message : '修改密码失败。'
+    error.classList.add('on')
+  }
+}
+
+void (async () => {
+  if (!await bootstrapSession()) return
+  void loadOperatorToken()
+  void refreshNodes()
+  void loadEnrollment()
+  void loadWebSocketAddress()
+  setInterval(() => { void refreshNodes() }, 5000)
+})()
 </script>
 </body>
 </html>

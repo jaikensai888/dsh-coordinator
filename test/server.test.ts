@@ -167,16 +167,17 @@ describe('starting and stopping', () => {
     expect(restarted.stats().listening).toBe(true)
   })
 
-  it('keeps the operator API available on localhost for an unprotected non-loopback bind', async () => {
+  it('does not exempt localhost: a non-loopback bind without a credential answers 401', async () => {
     const coordinator = await startCoordinator({ host: '0.0.0.0', allowInsecureBind: true })
     const port = coordinator.address?.port ?? 0
 
-    // The listener may be reachable by nodes on other interfaces, but the
-    // operator API remains a localhost bootstrap surface until a token is set.
+    // The old rule treated a loopback socket as proof of identity. It is not:
+    // the console is published on the LAN, and "the request came from this
+    // machine" says nothing about who is driving the browser.
     for (const path of ['/api/stats', '/api/nodes']) {
       const response = await fetch(`http://127.0.0.1:${port}${path}`)
-      expect(response.status, path).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({ ok: true })
+      expect(response.status, path).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({ ok: false })
     }
   })
 

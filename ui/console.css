@@ -1,0 +1,446 @@
+/*
+  Shared styles for the sign-in page and the usage console.
+
+  Kept as a separate file rather than inline for one reason: `index.html` is already
+  a hundred kilobytes of one page, and the usage view is a second page-sized surface.
+  A separate stylesheet is served through the same whitelist as the usage script, so
+  there is still exactly one origin and no build step.
+
+  Layout targets are the acceptance widths — 320, 736 and 1024 — and every table
+  scrolls inside its own box instead of pushing the page sideways.
+*/
+
+* { box-sizing: border-box; }
+
+:root {
+  --u-bg: #0b0e14;
+  --u-surface: #11151d;
+  --u-surface-2: #171c26;
+  --u-surface-3: #1e2530;
+  --u-line: #242c39;
+  --u-line-soft: #1a212b;
+  --u-text: #e6eaf2;
+  --u-dim: #8a94a6;
+  --u-faint: #5c6675;
+  --u-accent: #4d8dff;
+  --u-accent-dim: rgba(77, 141, 255, .14);
+  --u-ok: #46c05f;
+  --u-warn: #d9a441;
+  --u-bad: #f06a60;
+  --u-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --u-radius: 8px;
+}
+
+body.u-page {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--u-bg);
+  color: var(--u-text);
+  font: 13px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* ------------------------------------------------------------------ sign in */
+
+.u-login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 500px at 20% -10%, rgba(77, 141, 255, .16), transparent 60%),
+    var(--u-bg);
+}
+
+.u-login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--u-surface);
+  border: 1px solid var(--u-line);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.u-login-card h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: .2px;
+}
+
+.u-login-sub {
+  margin: 0 0 22px;
+  color: var(--u-dim);
+  font-size: 12px;
+}
+
+.u-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.u-field label { font-size: 12px; color: var(--u-dim); }
+
+.u-input,
+.u-select {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--u-surface-2);
+  color: var(--u-text);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-radius);
+  font: inherit;
+}
+
+.u-input:focus-visible,
+.u-select:focus-visible,
+.u-button:focus-visible {
+  outline: 2px solid var(--u-accent);
+  outline-offset: 1px;
+}
+
+.u-button {
+  appearance: none;
+  padding: 8px 13px;
+  border-radius: var(--u-radius);
+  border: 1px solid var(--u-line);
+  background: var(--u-surface-2);
+  color: var(--u-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.u-button:hover { background: var(--u-surface-3); }
+.u-button:disabled { opacity: .5; cursor: not-allowed; }
+
+.u-button.u-primary {
+  background: var(--u-accent);
+  border-color: var(--u-accent);
+  color: #fff;
+}
+
+.u-button.u-primary:hover { filter: brightness(1.08); }
+.u-button.u-block { width: 100%; margin-top: 6px; }
+
+.u-alert {
+  display: none;
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border-radius: var(--u-radius);
+  border: 1px solid #5c2b25;
+  background: #2c1618;
+  color: #f3c9c4;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.u-alert.u-on { display: block; }
+.u-alert.u-info {
+  border-color: #4a3a17;
+  background: #241d10;
+  color: #e8d6ac;
+}
+
+.u-note {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--u-line-soft);
+  color: var(--u-faint);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ----------------------------------------------------------------- console */
+
+#usage-view {
+  padding: 16px 18px 40px;
+  /*
+    `width: 100%` is load-bearing.
+
+    The console's body is a column flex container, and `margin: 0 auto` on a flex
+    item turns off cross-axis stretching — so the page would size itself to the
+    widest table instead of to the viewport. With an explicit width the table's own
+    scroll container gets a bounded box and the document stops scrolling sideways.
+  */
+  width: 100%;
+  max-width: 1440px;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.u-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.u-topbar h2 { margin: 0 10px 0 0; font-size: 16px; font-weight: 600; }
+.u-topbar .u-spacer { flex: 1 1 auto; }
+
+.u-seg {
+  display: inline-flex;
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-radius);
+  overflow: hidden;
+}
+
+.u-seg button {
+  border: 0;
+  background: var(--u-surface);
+  color: var(--u-dim);
+  padding: 7px 11px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.u-seg button + button { border-left: 1px solid var(--u-line); }
+.u-seg button[aria-pressed="true"] { background: var(--u-accent-dim); color: var(--u-text); }
+
+.u-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.u-range .u-input { width: auto; padding: 6px 8px; }
+
+.u-banner {
+  display: none;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid #4a3a17;
+  background: #241d10;
+  color: #e8d6ac;
+  border-radius: var(--u-radius);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.u-banner.u-on { display: block; }
+.u-banner.u-bad { border-color: #5c2b25; background: #2c1618; color: #f3c9c4; }
+
+.u-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.u-card {
+  background: var(--u-surface);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-radius);
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.u-card .u-k { color: var(--u-dim); font-size: 11px; letter-spacing: .3px; }
+.u-card .u-v {
+  margin-top: 4px;
+  font: 600 22px/1.2 var(--u-mono);
+  overflow-wrap: anywhere;
+}
+.u-card .u-s { margin-top: 4px; color: var(--u-faint); font-size: 11px; }
+
+.u-panel {
+  background: var(--u-surface);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-radius);
+  padding: 14px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.u-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.u-panel-head h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.u-panel-head .u-spacer { flex: 1 1 auto; }
+
+.u-muted { color: var(--u-dim); }
+.u-faint { color: var(--u-faint); font-size: 11px; }
+
+.u-chart {
+  width: 100%;
+  height: 190px;
+  display: block;
+}
+
+.u-chart-bar { fill: var(--u-accent); }
+.u-chart-bar.u-other { fill: var(--u-faint); }
+.u-chart-axis { stroke: var(--u-line); }
+.u-chart-label { fill: var(--u-faint); font-size: 10px; }
+
+.u-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--u-line-soft);
+  border-radius: var(--u-radius);
+}
+
+table.u-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 860px;
+}
+
+table.u-table th,
+table.u-table td {
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--u-line-soft);
+}
+
+table.u-table th {
+  position: sticky;
+  top: 0;
+  background: var(--u-surface-2);
+  color: var(--u-dim);
+  font-weight: 600;
+  z-index: 1;
+}
+
+table.u-table th.u-num,
+table.u-table td.u-num { text-align: right; font-family: var(--u-mono); }
+
+table.u-table tbody tr.u-row { cursor: pointer; }
+table.u-table tbody tr.u-row:hover { background: var(--u-surface-2); }
+table.u-table tbody tr.u-row:focus-visible { outline: 2px solid var(--u-accent); outline-offset: -2px; }
+
+.u-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--u-line);
+  background: var(--u-surface-2);
+  color: var(--u-dim);
+  font-size: 11px;
+}
+
+.u-pill.u-ok { color: var(--u-ok); border-color: #1f4a2a; background: #11231a; }
+.u-pill.u-warn { color: var(--u-warn); border-color: #4a3a17; background: #241d10; }
+.u-pill.u-bad { color: var(--u-bad); border-color: #5c2b25; background: #2c1618; }
+.u-pill.u-info { color: var(--u-accent); border-color: #23375c; background: var(--u-accent-dim); }
+
+.u-unknown { color: var(--u-warn); }
+
+.u-empty {
+  padding: 26px 14px;
+  text-align: center;
+  color: var(--u-faint);
+}
+
+.u-pager { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.u-pager .u-spacer { flex: 1 1 auto; }
+
+.u-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.u-filters .u-input, .u-filters .u-select { width: auto; min-width: 120px; padding: 6px 8px; }
+
+.u-models { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+
+.u-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.u-detail-head h2 { margin: 0; font-size: 16px; }
+.u-mono { font-family: var(--u-mono); }
+
+.u-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+@media (max-width: 1000px) {
+  .u-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  #usage-view { padding: 12px 12px 32px; }
+  .u-cards { grid-template-columns: minmax(0, 1fr); }
+  .u-card .u-v { font-size: 19px; }
+  .u-login-card { padding: 22px 18px; }
+  .u-topbar h2 { width: 100%; }
+}
+
+/* --------------------------------------------------- console chrome additions */
+
+/* `hidden` must win over the layout rules above, whichever file sets it. */
+[hidden] { display: none !important; }
+
+header .view-nav {
+  display: inline-flex;
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-radius);
+  overflow: hidden;
+}
+
+header .view-nav button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--u-dim);
+  padding: 6px 11px;
+  font: inherit;
+  cursor: pointer;
+}
+
+header .view-nav button + button { border-left: 1px solid var(--u-line); }
+header .view-nav button.nav-active { background: var(--u-accent-dim); color: var(--u-text); }
+
+header .account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--u-line);
+  border-radius: 999px;
+  color: var(--u-dim);
+  font-size: 12px;
+}
+
+header .account-name { color: var(--u-text); max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header .account button { padding: 4px 8px; font-size: 12px; }
+
+#passwordbar {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(4, 6, 10, .72);
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+#passwordbar.on { display: flex; }
+
+#passwordbar .sheet {
+  width: 100%;
+  max-width: 360px;
+  background: var(--u-surface);
+  border: 1px solid var(--u-line);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#passwordbar .sheet-head { display: flex; align-items: center; gap: 8px; }
+#passwordbar h2 { margin: 0; font-size: 15px; }
+#passwordbar .hint { color: var(--u-dim); font-size: 12px; line-height: 1.6; }
+#passwordbar .error { display: none; color: #f3c9c4; font-size: 12px; }
+#passwordbar .error.on { display: block; }
+#passwordbar .controls { display: flex; gap: 8px; justify-content: flex-end; }
+
+#usage-view { min-height: 60vh; }
+
+@media (max-width: 900px) {
+  header .account-name { display: none; }
+  header .header-metrics { display: none; }
+}
