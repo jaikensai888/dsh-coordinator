@@ -53,7 +53,7 @@ interface ReplayGap { fromSeq: Decimal; throughSeq: Decimal; reason: 'pruned' | 
 
 ## 2. Node Remote
 
-沿用现有 rpc.request/rpc.result；namespace 为 nodeUsage，三个 unary，descriptor 参数统一只有 request，wire payload={args:{request:{...}}}。不扩展 dsh-node/1 帧枚举。
+沿用现有 rpc.request/rpc.result；namespace 为 nodeUsage，三个 unary；status 为零参数，wire payload={args:{}}；read/ack 参数只有 request，wire payload={args:{request:{...}}}。不扩展 dsh-node/1 帧枚举。
 
 ```ts
 interface UsageStatus {
@@ -90,7 +90,7 @@ interface UsageAckRequest { collectorId: string; throughSeq: Decimal }
 interface UsageAckResult { collectorId: string; ackedThroughSeq: Decimal }
 ```
 
-`nodeUsage/status({request:{}})` → UsageStatus；read/ack 使用对应 request。未知参数拒绝；collectorId 错误返回 nodeUsage/collector-mismatch（附最新安全 status）；非法参数返回 nodeUsage/invalid-arguments，存储错误 nodeUsage/storage-unavailable；disabled/unsupported 返回明确状态，不返回假空统计。
+`nodeUsage/status` → UsageStatus，调用 args={}，不得额外传 request；read/ack 使用对应 request。未知参数拒绝；collectorId 错误返回 nodeUsage/collector-mismatch（附最新安全 status）；非法参数返回 nodeUsage/invalid-arguments，存储错误 nodeUsage/storage-unavailable；disabled/unsupported 返回明确状态，不返回假空统计。
 
 - status 的 earliestAvailableSeq：有可读事件取最小 seq，无事件取 latestIssuedSeq+1。latestIssuedSeq 始终包含已清理事件的历史上界。
 - read 自适应小于现有 RPC 最大帧；返回 JSON 的完整 envelope 不能超帧。单条过大时不得越过它继续 ACK；返回 nodeUsage/record-too-large 并使该节点 degraded。字符串 provider/model≤256、sessionId≤256、ID≤128，单条事件≤16 KiB，禁止包含消息正文、工具参数、异常堆栈和凭据。
