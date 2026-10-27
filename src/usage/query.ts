@@ -130,6 +130,8 @@ export interface NodeUsageRow {
 
 /** What the query layer needs to know about registered nodes. */
 export interface NodeCatalog {
+  /** The connected node advertises nodeUsage, even before its first successful sync. */
+  supportsUsage?(nodeId: string): boolean
   /** Every registered node, revoked included. */
   list(): readonly { readonly nodeId: string; readonly nodeName?: string; readonly state: string; readonly revoked: boolean }[]
 }
@@ -545,7 +547,11 @@ export class UsageQueries {
       (latest, state) => (state.lastSyncedAt !== null && (latest === null || state.lastSyncedAt > latest) ? state.lastSyncedAt : latest),
       null,
     )
-    const supportedNodeCount = new Set(states.filter(state => state.collectorId !== '').map(state => state.nodeId)).size
+    const supportedIds = new Set(states.filter(state => state.collectorId !== '').map(state => state.nodeId))
+    for (const node of nodes) {
+      if ((nodeId === undefined || node.nodeId === nodeId) && this.#nodes.supportsUsage?.(node.nodeId)) supportedIds.add(node.nodeId)
+    }
+    const supportedNodeCount = supportedIds.size
     return {
       from: new Date(window.fromMs).toISOString(),
       to: new Date(window.toMs).toISOString(),
@@ -586,7 +592,7 @@ export class UsageQueries {
     for (const node of catalog) {
       const states = this.#repository.listStates(node.nodeId)
       const collectorId = states[0]?.collectorId
-      const supported = states.some(state => state.collectorId !== '')
+      const supported = states.some(state => state.collectorId !== '') || this.#nodes.supportsUsage?.(node.nodeId) === true
       let totals: UsageTotals | null = null
       if (supported && collectorId !== undefined) {
         const acc = emptyAcc()
@@ -804,7 +810,7 @@ export class UsageQueries {
         const truncated = gaps.length > 50
         return {
           nodeId: node.nodeId,
-          collectorState: collectorStateOf(states, states.some(state => state.collectorId !== '')),
+          collectorState: collectorStateOf(states, states.some(state => state.collectorId !== '') || this.#nodes.supportsUsage?.(node.nodeId) === true),
           connectionState: node.state,
           activeCollectorId: active?.collectorId ?? null,
           startedAt: active?.startedAt ?? null,

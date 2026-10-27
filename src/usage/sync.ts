@@ -320,7 +320,7 @@ export class UsageSync {
   /** Ask for the node's collector status. */
   async #status(nodeId: string): Promise<UsageStatus> {
     try {
-      const value = await this.#options.invoke(nodeId, USAGE_STATUS_ENDPOINT, { request: {} })
+      const value = await this.#options.invoke(nodeId, USAGE_STATUS_ENDPOINT, {})
       return parseUsageStatus(value)
     } catch (error) {
       throw this.#translate(error)

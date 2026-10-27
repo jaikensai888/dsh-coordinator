@@ -313,7 +313,10 @@ export class Coordinator {
       this.#usageQueries = new UsageQueries({
         db: this.#database.db,
         repository: this.#usageRepository,
-        nodes: { list: () => this.#registry.list() },
+        nodes: {
+          list: () => this.#registry.list(),
+          supportsUsage: nodeId => this.#registry.capabilitiesOf(nodeId)?.namespaces.includes('nodeUsage') === true,
+        },
         now: () => this.#timers.now(),
       })
       this.#usageSync = new UsageSync({

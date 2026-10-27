@@ -16,10 +16,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { NodeUsageOwner, NodeUsageStore } from 'dsh-node'
+import { NodeUsageOwner, NodeUsageStore, USAGE_DESCRIPTORS } from 'dsh-node'
 import { openCoordinatorDatabase, type CoordinatorDatabase } from '../src/database.js'
 import { UsageRepository } from '../src/usage/repository.js'
 import { UsageQueries } from '../src/usage/query.js'
+import { UsageSync } from '../src/usage/sync.js'
 import { parseUsageBatch, type UsageStatus } from '../src/usage/types.js'
 
 const directories: string[] = []
@@ -197,5 +198,57 @@ describe('node output through Coordinator input', () => {
     const parsed = parseUsageBatch(batch)
     expect(parsed.events).toHaveLength(1)
     expect(parsed.gaps).toEqual([])
+  })
+})
+
+
+describe('live usage capability agreement', () => {
+  it('synchronizes through the node descriptors without extra status arguments', async () => {
+    const { owner, collectorId } = await nodeQueue()
+    const database = openCoordinatorDatabase({ file: join(await scratch(), 'coordinator.sqlite') })
+    databases.push(database)
+    const repository = new UsageRepository({ db: database.db })
+    const sync = new UsageSync({
+      repository,
+      isReady: () => true,
+      intervalMs: 10,
+      retryMs: 10,
+      invoke: async (_nodeId, endpoint, args) => {
+        const descriptor = USAGE_DESCRIPTORS.find(item => item.namespace + '/' + item.method === endpoint)
+        if (descriptor === undefined) throw new Error('Missing node descriptor: ' + endpoint)
+        const fields = descriptor.parameters.map(parameter => parameter.wire)
+        if (Object.keys(args).some(field => !fields.includes(field))) {
+          throw Object.assign(new Error('Gateway rejected unexpected arguments: ' + endpoint), { code: 'gateway/arguments-invalid' })
+        }
+        if (descriptor.method === 'status') return owner.status()
+        if (descriptor.method === 'read') return owner.read(args['request'])
+        return owner.ack(args['request'])
+      },
+    })
+    try {
+      sync.startNode('node-cross')
+      await expect.poll(() => repository.getCursor('node-cross', collectorId), { timeout: 1200 }).toBe('2')
+      expect(repository.listStates('node-cross')[0]?.lastSyncedAt).not.toBeNull()
+    } finally {
+      await sync.dispose()
+    }
+  })
+
+  it('reports advertised collection as initializing before the first successful sync', async () => {
+    const database = openCoordinatorDatabase({ file: join(await scratch(), 'coordinator.sqlite') })
+    databases.push(database)
+    const repository = new UsageRepository({ db: database.db })
+    const queries = new UsageQueries({
+      db: database.db,
+      repository,
+      nodes: {
+        list: () => [{ nodeId: 'node-cross', nodeName: 'my-desktop', state: 'ready', revoked: false }],
+        supportsUsage: () => true,
+      },
+    })
+    expect(queries.nodesReport({}, 'nodeName', 'asc', 1, 20).items[0]?.collectorState).toBe('initializing')
+    expect(queries.nodesReport({}, 'nodeName', 'asc', 1, 20).items[0]?.totals).toBeNull()
+    expect(queries.status('node-cross').items[0]?.collectorState).toBe('initializing')
+    expect(queries.summary({}).supportedNodeCount).toBe(1)
   })
 })
